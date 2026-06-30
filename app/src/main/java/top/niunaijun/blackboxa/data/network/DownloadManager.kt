@@ -1,6 +1,7 @@
 package top.niunaijun.blackboxa.data.network
 
 import android.content.Context
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -36,6 +37,7 @@ sealed class DownloadResult {
 class DownloadManager(private val context: Context) {
 
     companion object {
+        private const val TAG = "DownloadManager"
         private const val BUFFER_SIZE = 32 * 1024
         private const val CHUNK_SIZE = 256 * 1024
         private const val MAX_RETRIES = 3
@@ -98,8 +100,10 @@ class DownloadManager(private val context: Context) {
         var totalBytes = -1L
 
         val savedMeta = loadMeta(metaFile)
-        if (savedMeta != null && outputFile.exists()) {
+        if (savedMeta != null && outputFile.exists() && outputFile.length() > 0) {
             downloadedBytes = outputFile.length()
+        } else {
+            downloadedBytes = 0L
         }
 
         val connection = URL(url).openConnection() as HttpURLConnection
@@ -115,6 +119,19 @@ class DownloadManager(private val context: Context) {
         return try {
             connection.connect()
             val responseCode = connection.responseCode
+
+            if (responseCode == 416) {
+                // 416 Range Not Satisfiable — stale meta or server doesn't support range
+                // Clear everything and retry fresh
+                Log.w(TAG, "HTTP 416 for $gameId — clearing stale meta, retrying fresh")
+                metaFile.delete()
+                outputFile.delete()
+                downloadedBytes = 0L
+
+                // Retry without Range header
+                connection.disconnect()
+                return tryDownloadFresh(gameId, url, onProgress)
+            }
 
             if (responseCode == HttpURLConnection.HTTP_PARTIAL || responseCode == HttpURLConnection.HTTP_OK) {
                 totalBytes = getContentLength(connection, responseCode, downloadedBytes)
@@ -190,6 +207,92 @@ class DownloadManager(private val context: Context) {
                     )
                 )
             }
+            throw e
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun tryDownloadFresh(
+        gameId: String,
+        url: String,
+        onProgress: (DownloadProgress) -> Unit
+    ): DownloadResult {
+        val outputFile = File(downloadDir, "${gameId}.zip")
+        val metaFile = File(metaDir, "${gameId}.meta")
+
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.apply {
+            requestMethod = "GET"
+            connectTimeout = 15000
+            readTimeout = 30000
+        }
+
+        return try {
+            connection.connect()
+            val responseCode = connection.responseCode
+
+            if (responseCode == HttpURLConnection.HTTP_OK) {
+                val totalBytes = connection.contentLengthLong
+                val etag = connection.getHeaderField("ETag")
+                var downloadedBytes = 0L
+
+                val inputStream: InputStream = connection.inputStream
+                val outputStream = FileOutputStream(outputFile, false)
+
+                inputStream.use { input ->
+                    outputStream.use { output ->
+                        val buffer = ByteArray(BUFFER_SIZE)
+                        var bytesRead: Int
+                        var lastReportedPercent = -1
+                        var chunkBytes = 0L
+
+                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                            output.write(buffer, 0, bytesRead)
+                            downloadedBytes += bytesRead
+                            chunkBytes += bytesRead
+
+                            if (chunkBytes >= CHUNK_SIZE) {
+                                val percent = if (totalBytes > 0) {
+                                    ((downloadedBytes * 100) / totalBytes).toInt()
+                                } else 0
+
+                                if (percent != lastReportedPercent) {
+                                    lastReportedPercent = percent
+                                    onProgress(
+                                        DownloadProgress(
+                                            gameId = gameId,
+                                            bytesDownloaded = downloadedBytes,
+                                            totalBytes = totalBytes,
+                                            percentage = percent.coerceIn(0, 100)
+                                        )
+                                    )
+                                }
+                                chunkBytes = 0L
+                            }
+                        }
+                    }
+                }
+
+                saveMeta(metaFile, DownloadMetadata(url, totalBytes, downloadedBytes, etag))
+
+                onProgress(
+                    DownloadProgress(
+                        gameId = gameId,
+                        bytesDownloaded = downloadedBytes,
+                        totalBytes = totalBytes,
+                        percentage = 100
+                    )
+                )
+
+                DownloadResult.Success(gameId = gameId, file = outputFile)
+            } else {
+                DownloadResult.Error(
+                    gameId = gameId,
+                    message = "Server returned $responseCode"
+                )
+            }
+        } catch (e: Exception) {
             throw e
         } finally {
             connection.disconnect()
