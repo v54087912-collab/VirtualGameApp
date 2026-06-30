@@ -40,6 +40,30 @@ jobs:
             -keypass 'kJCp!Bda#PBdN2RLK%yMK@hatq&69E' \
             -dname "CN=Dev, OU=Dev, O=Dev, L=Unknown, ST=Unknown, C=US"
 
+      - name: Accept licenses and install SDK/NDK
+        run: |
+          SDK_ROOT=${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}
+          echo "sdk.dir=$SDK_ROOT" > local.properties
+
+          CMDLINE="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          TOOLS="$SDK_ROOT/tools/bin/sdkmanager"
+
+          if [ -f "$CMDLINE" ]; then
+            SM=$CMDLINE
+          elif [ -f "$TOOLS" ]; then
+            SM=$TOOLS
+          else
+            echo "sdkmanager not found, installing cmdline-tools..."
+            mkdir -p "$SDK_ROOT/cmdline-tools"
+            wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O /tmp/cmdline-tools.zip
+            unzip -q /tmp/cmdline-tools.zip -d "$SDK_ROOT/cmdline-tools/"
+            mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
+            SM="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          fi
+
+          yes | $SM --licenses --sdk_root=$SDK_ROOT || true
+          $SM --install "ndk;29.0.13846066" "platforms;android-35" "build-tools;35.0.0" --sdk_root=$SDK_ROOT || true
+
       - name: Build Debug and Release APKs
         run: ./gradlew assembleDebug assembleRelease --stacktrace
 
