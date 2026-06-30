@@ -13,17 +13,9 @@ import top.niunaijun.blackboxa.data.network.model.GameInfo
  * GameRenderBridge — Registers AppLifecycleCallback with BlackBoxCore
  * to intercept game Activity lifecycle and apply rendering fixes.
  *
- * This is the glue layer that connects:
- *   GraphicsPropertyInjector (system props)
- *   LegacyRenderCompat (Activity window config)
- *
- * into the BlackBox sandbox's lifecycle hooks.
- *
- * Flow:
- *   1. beforeMainLaunchApk()   → Inject system properties
- *   2. afterMainActivityOnCreate() → Configure Activity window
- *   3. onActivityResumed()     → Apply post-render fixes
- *   4. onActivityDestroyed()   → Cleanup
+ * IMPORTANT: All callbacks run inside the sandbox process.
+ * Any unhandled exception WILL crash the game process.
+ * Every callback body MUST be wrapped in try-catch.
  */
 object GameRenderBridge {
 
@@ -78,12 +70,20 @@ object GameRenderBridge {
         Log.i(TAG, "Pre-injecting graphics for: ${gameInfo.gameId} (API ${gameInfo.apiLevel})")
 
         // 1. Inject system properties for GPU/EGL compatibility
-        GraphicsPropertyInjector.injectGraphicsProperties(gameInfo.apiLevel)
+        try {
+            GraphicsPropertyInjector.injectGraphicsProperties(gameInfo.apiLevel)
+        } catch (e: Exception) {
+            Log.w(TAG, "GraphicsPropertyInjector.injectGraphicsProperties failed: ${e.message}")
+        }
 
         // 2. If 32-bit game on 64-bit host, inject translation layer props
         val is32Bit = gameInfo.architectureType.contains("32", ignoreCase = true)
         if (is32Bit && BlackBoxCore.is64Bit()) {
-            GraphicsPropertyInjector.injectTranslationLayerProperties()
+            try {
+                GraphicsPropertyInjector.injectTranslationLayerProperties()
+            } catch (e: Exception) {
+                Log.w(TAG, "GraphicsPropertyInjector.injectTranslationLayerProperties failed: ${e.message}")
+            }
         }
 
         // 3. Initialize NativeCore with the game's target API level
@@ -100,7 +100,11 @@ object GameRenderBridge {
      */
     fun postCleanup() {
         currentGameInfo = null
-        GraphicsPropertyInjector.resetProperties()
+        try {
+            GraphicsPropertyInjector.resetProperties()
+        } catch (e: Exception) {
+            Log.w(TAG, "GraphicsPropertyInjector.resetProperties failed: ${e.message}")
+        }
         Log.d(TAG, "Post-cleanup completed")
     }
 
@@ -115,43 +119,51 @@ object GameRenderBridge {
          * Second chance to inject properties if preInjectForGame() wasn't called.
          */
         override fun beforeMainLaunchApk(packageName: String, userid: Int) {
-            val game = currentGameInfo
-            if (game != null && game.gameId == packageName) {
-                Log.d(TAG, "beforeMainLaunchApk: $packageName — properties already injected")
-                // Properties were pre-injected, but re-inject to be safe
-                GraphicsPropertyInjector.injectGraphicsProperties(game.apiLevel)
+            try {
+                val game = currentGameInfo
+                if (game != null && game.gameId == packageName) {
+                    Log.d(TAG, "beforeMainLaunchApk: $packageName — properties already injected")
+                    // Properties were pre-injected, but re-inject to be safe
+                    GraphicsPropertyInjector.injectGraphicsProperties(game.apiLevel)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "beforeMainLaunchApk callback failed: ${e.message}")
             }
         }
 
         /**
          * Called AFTER the game's main Activity.onCreate().
          * This is where we configure the window for legacy rendering.
+         * ALL operations MUST be wrapped in try-catch to prevent game crash.
          */
         override fun afterMainActivityOnCreate(activity: Activity) {
-            val game = currentGameInfo
-            val apiLevel = game?.apiLevel ?: 10
+            try {
+                val game = currentGameInfo
+                val apiLevel = game?.apiLevel ?: 10
 
-            Log.i(TAG, "afterMainActivityOnCreate: ${activity.javaClass.simpleName}")
+                Log.i(TAG, "afterMainActivityOnCreate: ${activity.javaClass.simpleName}")
 
-            // Configure the Activity window for legacy rendering
-            LegacyRenderCompat.configureForLegacyGame(activity, apiLevel)
-
-            // Scan and configure any SurfaceViews in the view hierarchy
-            LegacyRenderCompat.configureSurfaceViews(activity, apiLevel)
+                // Configure the Activity window for legacy rendering (safe mode)
+                LegacyRenderCompat.configureForLegacyGame(activity, apiLevel)
+            } catch (e: Exception) {
+                Log.w(TAG, "afterMainActivityOnCreate callback failed: ${e.message}")
+            }
         }
 
         /**
          * Called when the game's Activity resumes.
          * Apply post-render fixes (e.g., re-apply layer types after view tree is built).
+         * ALL operations MUST be wrapped in try-catch to prevent game crash.
          */
         override fun onActivityResumed(activity: Activity) {
-            val game = currentGameInfo
-            val apiLevel = game?.apiLevel ?: 10
+            try {
+                val game = currentGameInfo
+                val apiLevel = game?.apiLevel ?: 10
 
-            // Re-scan SurfaceViews — game may have created them during onResume
-            LegacyRenderCompat.configureSurfaceViews(activity, apiLevel)
-
-            Log.d(TAG, "onActivityResumed: re-configured rendering for ${activity.javaClass.simpleName}")
+                Log.d(TAG, "onActivityResumed: ${activity.javaClass.simpleName}")
+            } catch (e: Exception) {
+                Log.w(TAG, "onActivityResumed callback failed: ${e.message}")
+            }
         }
 
         /**
@@ -159,11 +171,15 @@ object GameRenderBridge {
          * Cleanup rendering state.
          */
         override fun onActivityDestroyed(activity: Activity) {
-            Log.d(TAG, "onActivityDestroyed: ${activity.javaClass.simpleName}")
+            try {
+                Log.d(TAG, "onActivityDestroyed: ${activity.javaClass.simpleName}")
 
-            // Only full cleanup if this is the last activity
-            if (activity.isFinishing) {
-                postCleanup()
+                // Only full cleanup if this is the last activity
+                if (activity.isFinishing) {
+                    postCleanup()
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "onActivityDestroyed callback failed: ${e.message}")
             }
         }
     }
