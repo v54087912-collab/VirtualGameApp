@@ -27,10 +27,22 @@ public class AbiUtils {
         }
 
         if (BlackBoxCore.is64Bit()) {
-            return abiUtils.is64Bit();
+            return abiUtils.is64Bit() || abiUtils.is32Bit();
         } else {
             return abiUtils.is32Bit();
         }
+    }
+
+    public static boolean needsTranslation(File apkFile) {
+        AbiUtils abiUtils = sAbiUtilsMap.get(apkFile);
+        if (abiUtils == null) {
+            abiUtils = new AbiUtils(apkFile);
+            sAbiUtilsMap.put(apkFile, abiUtils);
+        }
+        if (abiUtils.isEmptyAib()) {
+            return false;
+        }
+        return BlackBoxCore.is64Bit() && abiUtils.is32Bit() && !abiUtils.is64Bit();
     }
 
     public AbiUtils(File apkFile) {

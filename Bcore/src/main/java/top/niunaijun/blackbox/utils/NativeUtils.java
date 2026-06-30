@@ -29,9 +29,33 @@ public class NativeUtils {
                 return;
             }
 
+            if (findAndCopyNativeLib(zipfile, "armeabi-v7a", nativeLibDir)) {
+                return;
+            }
+
             findAndCopyNativeLib(zipfile, "armeabi", nativeLibDir);
         } finally {
             Log.d(TAG, "Done! +" + (System.currentTimeMillis() - startTime) + "ms");
+        }
+    }
+
+    public static void copyNativeLibForArch(File apk, File nativeLibDir, String targetArch) throws Exception {
+        long startTime = System.currentTimeMillis();
+        if (!nativeLibDir.exists()) {
+            nativeLibDir.mkdirs();
+        }
+        try (ZipFile zipfile = new ZipFile(apk.getAbsolutePath())) {
+            if (findAndCopyNativeLib(zipfile, targetArch, nativeLibDir)) {
+                return;
+            }
+
+            if (targetArch.startsWith("arm64")) {
+                findAndCopyNativeLib(zipfile, "armeabi-v7a", nativeLibDir);
+            } else if (targetArch.startsWith("armeabi")) {
+                findAndCopyNativeLib(zipfile, "arm64-v8a", nativeLibDir);
+            }
+        } finally {
+            Log.d(TAG, "copyNativeLibForArch(" + targetArch + ") +" + (System.currentTimeMillis() - startTime) + "ms");
         }
     }
 

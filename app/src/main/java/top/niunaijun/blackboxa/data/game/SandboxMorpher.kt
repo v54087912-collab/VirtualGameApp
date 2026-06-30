@@ -18,8 +18,9 @@ class SandboxMorpher {
     fun applySpoofing(gameInfo: GameInfo, userId: Int) {
         try {
             spoofTargetSdk(gameInfo.apiLevel)
-            spoofArchitecture(gameInfo.architectureType)
+            spoofArchitectureDual(gameInfo.architectureType)
             spoofDeviceProperties()
+            spoofNativeLibPath(gameInfo.architectureType)
             Log.d(TAG, "Sandbox morphing applied for ${gameInfo.gameId}")
         } catch (e: Exception) {
             Log.w(TAG, "Partial spoofing failure: ${e.message}", e)
@@ -36,9 +37,18 @@ class SandboxMorpher {
         }
     }
 
-    private fun spoofArchitecture(architectureType: String) {
+    private fun spoofArchitectureDual(architectureType: String) {
         try {
-            if (architectureType.contains("32", ignoreCase = true)) {
+            val is32BitGame = architectureType.contains("32", ignoreCase = true)
+
+            if (is32BitGame && BlackBoxCore.is64Bit()) {
+                reflectSpoofBuildField("SUPPORTED_32_BIT_ABIS", arrayOf("armeabi-v7a", "armeabi"))
+                reflectSpoofBuildField("SUPPORTED_64_BIT_ABIS", arrayOf("arm64-v8a"))
+                reflectSpoofBuildField("SUPPORTED_ABIS", arrayOf("arm64-v8a", "armeabi-v7a", "armeabi"))
+                reflectSpoofBuildField("CPU_ABI", "armeabi-v7a")
+                reflectSpoofBuildField("CPU_ABI2", "arm64-v8a")
+                Log.d(TAG, "Dual ABI mode: 32-bit game on 64-bit host — ABIs set to arm64-v8a + armeabi-v7a")
+            } else if (is32BitGame) {
                 reflectSpoofBuildField("SUPPORTED_32_BIT_ABIS", arrayOf("armeabi-v7a", "armeabi"))
                 reflectSpoofBuildField("SUPPORTED_ABIS", arrayOf("armeabi-v7a", "armeabi"))
                 reflectSpoofBuildField("CPU_ABI", "armeabi-v7a")
@@ -52,6 +62,18 @@ class SandboxMorpher {
             }
         } catch (e: Exception) {
             Log.w(TAG, "Architecture spoof failed: ${e.message}")
+        }
+    }
+
+    private fun spoofNativeLibPath(architectureType: String) {
+        try {
+            val is32BitGame = architectureType.contains("32", ignoreCase = true)
+            if (is32BitGame && BlackBoxCore.is64Bit()) {
+                reflectSpoofBuildField("ABI", "armeabi-v7a")
+                Log.d(TAG, "Native lib ABI path set to armeabi-v7a for 32-bit compat")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Native lib path spoof failed: ${e.message}")
         }
     }
 

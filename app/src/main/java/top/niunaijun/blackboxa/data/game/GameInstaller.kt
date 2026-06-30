@@ -2,6 +2,8 @@ package top.niunaijun.blackboxa.data.game
 
 import android.content.Context
 import android.util.Log
+import top.niunaijun.blackbox.BlackBoxCore
+import top.niunaijun.blackbox.utils.AbiUtils
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
@@ -15,7 +17,9 @@ data class ExtractionResult(
     val apkFile: File?,
     val obbFiles: List<File>,
     val extractedDir: File,
-    val totalEntries: Int = 0
+    val totalEntries: Int = 0,
+    val detectedArch: String = "unknown",
+    val needsTranslation: Boolean = false
 )
 
 class GameInstaller(private val context: Context) {
@@ -101,18 +105,19 @@ class GameInstaller(private val context: Context) {
                     entry = zis.nextEntry
                 }
             }
-            onProgress(100)
-        } catch (e: Exception) {
-            Log.e(TAG, "Extraction failed for $gameId: ${e.message}", e)
-            targetDir.deleteRecursively()
-            throw e
-        }
+        onProgress(100)
+
+        val detectedArch = apkFile?.let { detectApkArchitecture(it) } ?: "no-apk"
+        val needsTranslation = apkFile?.let { needsTranslationLayer(it) } ?: false
+
         return ExtractionResult(
             gameId = gameId,
             apkFile = apkFile,
             obbFiles = obbFiles,
             extractedDir = targetDir,
-            totalEntries = totalEntries
+            totalEntries = totalEntries,
+            detectedArch = detectedArch,
+            needsTranslation = needsTranslation
         )
     }
 
@@ -136,5 +141,30 @@ class GameInstaller(private val context: Context) {
         val dir = File(gamesDir, gameId)
         if (!dir.exists()) return 0L
         return dir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+    }
+
+    fun detectApkArchitecture(apkFile: File): String {
+        return try {
+            val abiUtils = AbiUtils(apkFile)
+            when {
+                abiUtils.is64Bit() && abiUtils.is32Bit() -> "universal"
+                abiUtils.is64Bit() -> "arm64-v8a"
+                abiUtils.is32Bit() -> "armeabi-v7a"
+                abiUtils.isEmptyAib() -> "no-native-libs"
+                else -> "unknown"
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Architecture detection failed: ${e.message}")
+            "detection-failed"
+        }
+    }
+
+    fun needsTranslationLayer(apkFile: File): Boolean {
+        return try {
+            AbiUtils.needsTranslation(apkFile)
+        } catch (e: Exception) {
+            Log.w(TAG, "Translation check failed: ${e.message}")
+            false
+        }
     }
 }
