@@ -67,4 +67,23 @@
     <string name="disable_gms">Disable Service</string>
     <string name="disable_gms_hint">Clear the current Google service environment? Google service data will be cleared.</string>
     <string name="no_gms">Currently, there is no Google service environment on mobile phones.</string>
+
+    <!-- Dashboard UI -->
+    <string name="dashboard_title">Game Library</string>
+    <string name="game_count">%d games</string>
+    <string name="status_tap_to_install">Tap to install</string>
+    <string name="status_downloading">Downloading…</string>
+    <string name="status_installing">Installing…</string>
+    <string name="status_installed">Installed</string>
+    <string name="status_failed">Failed</string>
+    <string name="downloading_game">Downloading %s…</string>
+    <string name="install_failed_title">Installation Failed</string>
+    <string name="launch_failed">Failed to launch %s</string>
+    <string name="retry">Retry</string>
+    <string name="ok">OK</string>
+    <string name="error_title">Error</string>
+    <string name="grant_permission">Grant Permission</string>
+    <string name="later">Later</string>
+    <string name="storage_permission_title">Storage Permission Required</string>
+    <string name="storage_permission_message">This app needs storage permission to download and run sandboxed games. Please grant permission in the next screen.</string>
 </resources>

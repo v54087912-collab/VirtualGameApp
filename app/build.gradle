@@ -17,15 +17,27 @@ android {
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
 
-        splits {
-            abi {
-                enable true
-                reset()
-                
-                include 'armeabi-v7a', "arm64-v8a"
-                universalApk true
-            }
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
         }
+    }
+
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'armeabi-v7a', 'arm64-v8a'
+            universalApk true
+        }
+    }
+
+    packagingOptions {
+        pickFirst 'lib/armeabi-v7a/libc++_shared.so'
+        pickFirst 'lib/arm64-v8a/libc++_shared.so'
+        pickFirst 'lib/armeabi-v7a/libblackbox.so'
+        pickFirst 'lib/arm64-v8a/libblackbox.so'
+        doNotStrip '*/armeabi-v7a/*.so'
+        doNotStrip '*/arm64-v8a/*.so'
     }
 
     buildTypes {

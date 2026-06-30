@@ -9,37 +9,47 @@ import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.edit
-import androidx.viewpager2.widget.ViewPager2
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.GridLayoutManager
 import com.afollestad.materialdialogs.MaterialDialog
-import com.afollestad.materialdialogs.input.input
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.niunaijun.blackbox.BlackBoxCore
 import top.niunaijun.blackboxa.R
-import top.niunaijun.blackboxa.app.App
-import top.niunaijun.blackboxa.app.AppManager
+import top.niunaijun.blackboxa.data.game.GameBootService
+import top.niunaijun.blackboxa.data.game.TangoCoreInitializer
+import top.niunaijun.blackboxa.data.network.CatalogRepository
+import top.niunaijun.blackboxa.data.network.model.GameInfo
 import top.niunaijun.blackboxa.databinding.ActivityMainBinding
-import top.niunaijun.blackboxa.util.Resolution
 import top.niunaijun.blackboxa.util.inflate
-import top.niunaijun.blackboxa.view.apps.AppsFragment
 import top.niunaijun.blackboxa.view.base.LoadingActivity
 import top.niunaijun.blackboxa.view.fake.FakeManagerActivity
-import top.niunaijun.blackboxa.view.list.ListActivity
 import top.niunaijun.blackboxa.view.setting.SettingActivity
 
+/**
+ * MainActivity — Config-driven game dashboard.
+ *
+ * Reads games from local catalog.json (cached from remote).
+ * Displays a clean RecyclerView grid of game cards.
+ * On card click: silent download → install → launch.
+ * FAB and manual app add are completely removed.
+ */
 class MainActivity : LoadingActivity() {
 
     private val viewBinding: ActivityMainBinding by inflate()
+    private lateinit var gameCardAdapter: GameCardAdapter
+    private lateinit var catalogRepository: CatalogRepository
+    private lateinit var gameBootService: GameBootService
+    private lateinit var tangoCore: TangoCoreInitializer
 
-    private lateinit var mViewPagerAdapter: ViewPagerAdapter
-
-    private val fragmentList = mutableListOf<AppsFragment>()
-
-    private var currentUser = 0
+    private var gameList = mutableListOf<GameInfo>()
 
     companion object {
         private const val TAG = "MainActivity"
         private const val STORAGE_PERMISSION_REQUEST_CODE = 1001
         private const val VPN_PERMISSION_REQUEST_CODE = 1002
+        private const val GRID_COLUMNS = 3
 
         fun start(context: Context) {
             val intent = Intent(context, MainActivity::class.java)
@@ -59,14 +69,10 @@ class MainActivity : LoadingActivity() {
 
             setContentView(viewBinding.root)
             initToolbar(viewBinding.toolbarLayout.toolbar, R.string.app_name)
-            initViewPager()
-            initFab()
-            initToolbarSubTitle()
-
-            
+            initServices()
+            initDashboard()
+            initTangoCore()
             checkStoragePermission()
-
-            
             checkVpnPermission()
 
             try {
@@ -76,359 +82,302 @@ class MainActivity : LoadingActivity() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Critical error in onCreate: ${e.message}")
-            
             showErrorDialog("Failed to initialize app: ${e.message}")
         }
     }
 
+    /**
+     * Initialize backend services: CatalogRepository, GameBootService, TangoCore
+     */
+    private fun initServices() {
+        catalogRepository = CatalogRepository(this)
+        gameBootService = GameBootService(this)
+        tangoCore = TangoCoreInitializer(this)
+    }
+
+    /**
+     * Initialize the dashboard RecyclerView with grid layout
+     */
+    private fun initDashboard() {
+        gameCardAdapter = GameCardAdapter { game ->
+            onGameCardClicked(game)
+        }
+
+        viewBinding.rvGameGrid.apply {
+            layoutManager = GridLayoutManager(this@MainActivity, GRID_COLUMNS)
+            adapter = gameCardAdapter
+            setHasFixedSize(true)
+        }
+
+        // Load catalog from local cache or network
+        loadCatalog()
+    }
+
+    /**
+     * Initialize Tango Core binary translation layer at app startup
+     */
+    private fun initTangoCore() {
+        try {
+            // Pre-initialize for 32-bit games (most catalog games are 32-bit)
+            val result = tangoCore.initialize("32bit")
+            Log.i(TAG, "Tango Core init: mode=${result.translationMode}, libs=${result.libsLoaded}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Tango Core init failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Load game catalog — first from local cache, then refresh from network
+     */
+    private fun loadCatalog() {
+        viewBinding.stateView.showLoading()
+
+        // First, load from local cache for instant display
+        val cachedGames = catalogRepository.getCachedGames()
+        if (cachedGames.isNotEmpty()) {
+            gameList = cachedGames.toMutableList()
+            gameCardAdapter.submitList(gameList)
+            updateGameCount()
+            viewBinding.stateView.showContent()
+            Log.d(TAG, "Loaded ${cachedGames.size} games from cache")
+        }
+
+        // Then refresh from network in background
+        lifecycleScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    catalogRepository.fetchCatalog()
+                }
+                result.onSuccess { catalog ->
+                    gameList = catalog.gamesList.toMutableList()
+                    gameCardAdapter.submitList(gameList)
+                    updateGameCount()
+                    viewBinding.stateView.showContent()
+                    Log.d(TAG, "Loaded ${gameList.size} games from catalog")
+                }
+                result.onFailure { error ->
+                    Log.w(TAG, "Catalog fetch failed: ${error.message}")
+                    if (gameList.isEmpty()) {
+                        viewBinding.stateView.showEmpty()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Catalog load error: ${e.message}")
+                if (gameList.isEmpty()) {
+                    viewBinding.stateView.showEmpty()
+                }
+            }
+        }
+    }
+
+    private fun updateGameCount() {
+        viewBinding.tvGameCount.text = getString(R.string.game_count, gameList.size)
+    }
+
+    /**
+     * Handle game card click — silent install + launch pipeline
+     */
+    private fun onGameCardClicked(game: GameInfo) {
+        val currentStatus = gameCardAdapter.getInstallStatus(game.gameId)
+
+        // If already installed, just launch
+        if (currentStatus == GameCardAdapter.InstallStatus.INSTALLED) {
+            launchGame(game)
+            return
+        }
+
+        // Start silent install pipeline
+        gameCardAdapter.setInstallStatus(game.gameId, GameCardAdapter.InstallStatus.DOWNLOADING)
+
+        val progressDialog = MaterialDialog(this).show {
+            title(text = game.title)
+            message(text = getString(R.string.downloading_game, game.title))
+            cancelable(false)
+            cornerRadius(12f)
+        }
+
+        lifecycleScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    gameBootService.bootGame(game)
+                }
+
+                progressDialog.dismiss()
+
+                if (result.success) {
+                    gameCardAdapter.setInstallStatus(game.gameId, GameCardAdapter.InstallStatus.INSTALLED)
+                    // Auto-launch after successful install
+                    launchGame(game)
+                } else {
+                    gameCardAdapter.setInstallStatus(game.gameId, GameCardAdapter.InstallStatus.FAILED)
+                    MaterialDialog(this@MainActivity).show {
+                        title(text = getString(R.string.install_failed_title))
+                        message(text = result.message)
+                        positiveButton(text = getString(R.string.retry)) {
+                            onGameCardClicked(game)
+                        }
+                        negativeButton(text = getString(R.string.cancel))
+                    }
+                }
+            } catch (e: Exception) {
+                progressDialog.dismiss()
+                gameCardAdapter.setInstallStatus(game.gameId, GameCardAdapter.InstallStatus.FAILED)
+                Log.e(TAG, "Boot failed for ${game.gameId}: ${e.message}")
+                MaterialDialog(this@MainActivity).show {
+                    title(text = getString(R.string.install_failed_title))
+                    message(text = e.message ?: "Unknown error")
+                    positiveButton(text = getString(R.string.ok))
+                }
+            }
+        }
+    }
+
+    /**
+     * Launch an installed game in the sandbox
+     */
+    private fun launchGame(game: GameInfo) {
+        showLoading()
+        lifecycleScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) {
+                    BlackBoxCore.get().launchApk(game.gameId, 0)
+                }
+                hideLoading()
+                if (!result) {
+                    toast(getString(R.string.launch_failed, game.title))
+                }
+            } catch (e: Exception) {
+                hideLoading()
+                Log.e(TAG, "Launch failed: ${e.message}")
+                toast(getString(R.string.launch_failed, game.title))
+            }
+        }
+    }
+
+    // ──────────────────────────────────────────────────
+    //  Permission handling (storage + VPN)
+    // ──────────────────────────────────────────────────
+
     private fun checkStoragePermission() {
         try {
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                
                 if (!android.os.Environment.isExternalStorageManager()) {
-                    Log.w(TAG, "MANAGE_EXTERNAL_STORAGE permission not granted")
                     showStoragePermissionDialog()
                 }
             } else {
-                
                 if (androidx.core.content.ContextCompat.checkSelfPermission(
-                                this,
-                                android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-                        ) != android.content.pm.PackageManager.PERMISSION_GRANTED ||
-                                androidx.core.content.ContextCompat.checkSelfPermission(
-                                        this,
-                                        android.Manifest.permission.READ_EXTERNAL_STORAGE
-                                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                        this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+                    ) != android.content.pm.PackageManager.PERMISSION_GRANTED
                 ) {
-                    Log.w(
-                            TAG,
-                            "Storage permissions not granted on Android ${android.os.Build.VERSION.SDK_INT}"
+                    androidx.core.app.ActivityCompat.requestPermissions(
+                        this,
+                        arrayOf(
+                            android.Manifest.permission.READ_EXTERNAL_STORAGE,
+                            android.Manifest.permission.WRITE_EXTERNAL_STORAGE
+                        ),
+                        STORAGE_PERMISSION_REQUEST_CODE
                     )
-                    requestLegacyStoragePermission()
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error checking storage permission: ${e.message}")
-        }
-    }
-
-    private fun requestLegacyStoragePermission() {
-        try {
-            androidx.core.app.ActivityCompat.requestPermissions(
-                    this,
-                    arrayOf(
-                            android.Manifest.permission.READ_EXTERNAL_STORAGE,
-                            android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-                    ),
-                    STORAGE_PERMISSION_REQUEST_CODE
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Error requesting storage permission: ${e.message}")
-        }
-    }
-
-    override fun onRequestPermissionsResult(
-            requestCode: Int,
-            permissions: Array<out String>,
-            grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == STORAGE_PERMISSION_REQUEST_CODE) {
-            if (grantResults.isNotEmpty() &&
-                            grantResults.all {
-                                it == android.content.pm.PackageManager.PERMISSION_GRANTED
-                            }
-            ) {
-                Log.d(TAG, "Storage permissions granted")
-            } else {
-                Log.w(TAG, "Storage permissions denied")
-            }
+            Log.e(TAG, "Storage permission error: ${e.message}")
         }
     }
 
     private fun showStoragePermissionDialog() {
-        try {
-            MaterialDialog(this).show {
-                title(text = "Storage Permission Required")
-                message(
-                        text =
-                                "This app needs 'All Files Access' permission to properly run sandboxed apps. Without this permission, some apps may not work correctly.\n\nPlease grant permission in the next screen."
+        MaterialDialog(this).show {
+            title(text = getString(R.string.storage_permission_title))
+            message(text = getString(R.string.storage_permission_message))
+            positiveButton(text = getString(R.string.grant_permission)) {
+                val intent = Intent(
+                    android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION
                 )
-                positiveButton(text = "Grant Permission") { openAllFilesAccessSettings() }
-                negativeButton(text = "Later") { Log.w(TAG, "User postponed storage permission") }
-                cancelable(false)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error showing storage permission dialog: ${e.message}")
-        }
-    }
-
-    private fun openAllFilesAccessSettings() {
-        try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                val intent =
-                        Intent(
-                                android.provider.Settings
-                                        .ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION
-                        )
                 intent.data = Uri.parse("package:$packageName")
                 storagePermissionResult.launch(intent)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error opening storage settings: ${e.message}")
-            
-            try {
-                val intent =
-                        Intent(android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                storagePermissionResult.launch(intent)
-            } catch (e2: Exception) {
-                Log.e(TAG, "Error opening fallback storage settings: ${e2.message}")
-            }
+            negativeButton(text = getString(R.string.later))
+            cancelable(false)
         }
     }
 
     private val storagePermissionResult =
-            registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-                try {
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                        if (android.os.Environment.isExternalStorageManager()) {
-                            Log.d(TAG, "Storage permission granted!")
-                        } else {
-                            Log.w(TAG, "Storage permission still not granted")
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error handling storage permission result: ${e.message}")
-                }
-            }
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            // Permission result handled — app will work with whatever is granted
+        }
 
-    
     private fun checkVpnPermission() {
         try {
             val vpnIntent = VpnService.prepare(this)
             if (vpnIntent != null) {
-                
-                Log.d(TAG, "VPN permission not granted, requesting...")
                 vpnPermissionResult.launch(vpnIntent)
-            } else {
-                
-                Log.d(TAG, "VPN permission already granted")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error checking VPN permission: ${e.message}")
+            Log.e(TAG, "VPN permission error: ${e.message}")
         }
     }
 
     private val vpnPermissionResult =
-            registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-                try {
-                    if (result.resultCode == RESULT_OK) {
-                        Log.d(TAG, "VPN permission granted!")
-                        
-                    } else {
-                        Log.w(TAG, "VPN permission denied by user")
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error handling VPN permission result: ${e.message}")
-                }
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                Log.d(TAG, "VPN permission granted")
             }
+        }
 
     private fun showErrorDialog(message: String) {
-        try {
-            MaterialDialog(this).show {
-                title(text = "Error")
-                message(text = message)
-                positiveButton(text = "OK") { finish() }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error showing error dialog: ${e.message}")
-            finish()
+        MaterialDialog(this).show {
+            title(text = getString(R.string.error_title))
+            message(text = message)
+            positiveButton(text = getString(R.string.ok)) { finish() }
         }
     }
 
-    private fun initToolbarSubTitle() {
-        try {
-            updateUserRemark(0)
-            
-            viewBinding.toolbarLayout.toolbar.getChildAt(1)?.setOnClickListener {
-                try {
-                    MaterialDialog(this).show {
-                        title(res = R.string.userRemark)
-                        input(
-                                hintRes = R.string.userRemark,
-                                prefill = viewBinding.toolbarLayout.toolbar.subtitle
-                        ) { _, input ->
-                            try {
-                                AppManager.mRemarkSharedPreferences.edit {
-                                    putString("Remark$currentUser", input.toString())
-                                    viewBinding.toolbarLayout.toolbar.subtitle = input
-                                }
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error saving user remark: ${e.message}")
-                            }
-                        }
-                        positiveButton(res = R.string.done)
-                        negativeButton(res = R.string.cancel)
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error showing remark dialog: ${e.message}")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in initToolbarSubTitle: ${e.message}")
-        }
-    }
-
-    private fun initViewPager() {
-        try {
-            val userList = BlackBoxCore.get().users
-            userList.forEach { fragmentList.add(AppsFragment.newInstance(it.id)) }
-
-            currentUser = userList.firstOrNull()?.id ?: 0
-            fragmentList.add(AppsFragment.newInstance(userList.size))
-
-            mViewPagerAdapter = ViewPagerAdapter(this)
-            mViewPagerAdapter.replaceData(fragmentList)
-            viewBinding.viewPager.adapter = mViewPagerAdapter
-            viewBinding.dotsIndicator.setViewPager2(viewBinding.viewPager)
-            viewBinding.viewPager.registerOnPageChangeCallback(
-                    object : ViewPager2.OnPageChangeCallback() {
-                        override fun onPageSelected(position: Int) {
-                            try {
-                                super.onPageSelected(position)
-                                currentUser = fragmentList[position].userID
-                                updateUserRemark(currentUser)
-                                showFloatButton(true)
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error in onPageSelected: ${e.message}")
-                            }
-                        }
-                    }
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in initViewPager: ${e.message}")
-        }
-    }
-
-    private fun initFab() {
-        try {
-            viewBinding.fab.setOnClickListener {
-                try {
-                    val userId = viewBinding.viewPager.currentItem
-                    val intent = Intent(this, ListActivity::class.java)
-                    intent.putExtra("userID", userId)
-                    apkPathResult.launch(intent)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error launching ListActivity: ${e.message}")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in initFab: ${e.message}")
-        }
-    }
-
-    fun showFloatButton(show: Boolean) {
-        try {
-            val tranY: Float = Resolution.convertDpToPixel(120F, App.getContext())
-            val time = 200L
-            if (show) {
-                viewBinding.fab.animate().translationY(0f).alpha(1f).setDuration(time).start()
-            } else {
-                viewBinding.fab.animate().translationY(tranY).alpha(0f).setDuration(time).start()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in showFloatButton: ${e.message}")
-        }
-    }
-
-    fun scanUser() {
-        try {
-            val userList = BlackBoxCore.get().users
-
-            if (fragmentList.size == userList.size) {
-                fragmentList.add(AppsFragment.newInstance(fragmentList.size))
-            } else if (fragmentList.size > userList.size + 1) {
-                fragmentList.removeLast()
-            }
-
-            mViewPagerAdapter.notifyDataSetChanged()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error in scanUser: ${e.message}")
-        }
-    }
-
-    private fun updateUserRemark(userId: Int) {
-        try {
-            var remark =
-                    AppManager.mRemarkSharedPreferences.getString("Remark$userId", "User $userId")
-            if (remark.isNullOrEmpty()) {
-                remark = "User $userId"
-            }
-
-            viewBinding.toolbarLayout.toolbar.subtitle = remark
-        } catch (e: Exception) {
-            Log.e(TAG, "Error updating user remark: ${e.message}")
-            viewBinding.toolbarLayout.toolbar.subtitle = "User $userId"
-        }
-    }
-
-    private val apkPathResult =
-            registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-                try {
-                    if (it.resultCode == RESULT_OK) {
-                        it.data?.let { data ->
-                            val userId = data.getIntExtra("userID", 0)
-                            val source = data.getStringExtra("source")
-                            if (source != null) {
-                                fragmentList[userId].installApk(source)
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error handling APK path result: ${e.message}")
-                }
-            }
+    // ──────────────────────────────────────────────────
+    //  Menu (Settings, Fake Location, Open Source, Telegram)
+    // ──────────────────────────────────────────────────
 
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
-        try {
-            menuInflater.inflate(R.menu.menu_main, menu)
-            return true
-        } catch (e: Exception) {
-            Log.e(TAG, "Error creating options menu: ${e.message}")
-            return false
-        }
+        menuInflater.inflate(R.menu.menu_main, menu)
+        return true
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        try {
-            when (item.itemId) {
-                R.id.main_git -> {
-                    val intent =
-                            Intent(
-                                    Intent.ACTION_VIEW,
-                                    Uri.parse("https://github.com/ALEX5402/NewBlackbox")
-                            )
-                    startActivity(intent)
-                }
-                R.id.main_setting -> {
-                    SettingActivity.start(this)
-                }
-                R.id.main_tg -> {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/newblackboxa"))
-                    startActivity(intent)
-                }
-                R.id.fake_location -> {
-                    
-                    val intent = Intent(this, FakeManagerActivity::class.java)
-                    intent.putExtra("userID", 0)
-                    startActivity(intent)
-                }
+        when (item.itemId) {
+            R.id.main_git -> {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/ALEX5402/NewBlackbox")))
             }
-
-            return true
-        } catch (e: Exception) {
-            Log.e(TAG, "Error handling menu item selection: ${e.message}")
-            return false
+            R.id.main_setting -> {
+                SettingActivity.start(this)
+            }
+            R.id.main_tg -> {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/newblackboxa")))
+            }
+            R.id.fake_location -> {
+                val intent = Intent(this, FakeManagerActivity::class.java)
+                intent.putExtra("userID", 0)
+                startActivity(intent)
+            }
         }
+        return true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Refresh catalog when returning to dashboard
+        if (::gameCardAdapter.isInitialized && gameList.isNotEmpty()) {
+            loadCatalog()
+        }
+    }
+
+    /**
+     * Stub methods kept for backward compatibility with AppsFragment.
+     * These are no longer used in the dashboard UI.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun showFloatButton(show: Boolean) {
+        // FAB removed — no-op
+    }
+
+    fun scanUser() {
+        // User switching removed — no-op
     }
 }
