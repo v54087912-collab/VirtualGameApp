@@ -1,7 +1,7 @@
 package top.niunaijun.blackboxa.data.update
 
+import android.content.Context
 import top.niunaijun.blackboxa.data.network.model.AppMetadata
-import top.niunaijun.blackboxa.BuildConfig
 import java.lang.Exception
 
 data class VersionInfo(
@@ -11,10 +11,10 @@ data class VersionInfo(
     val updateType: String
 )
 
-class UpdateChecker {
+class UpdateChecker(private val context: Context) {
 
     fun checkVersion(metadata: AppMetadata): VersionInfo {
-        val current = BuildConfig.VERSION_NAME
+        val current = getAppVersion()
         val remote = metadata.latestAppVersion
         return VersionInfo(
             currentVersion = current,
@@ -39,5 +39,14 @@ class UpdateChecker {
 
     fun isForceUpdate(metadata: AppMetadata): Boolean {
         return metadata.updateType == "force"
+    }
+
+    private fun getAppVersion(): String {
+        return try {
+            val pkgInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            pkgInfo.versionName ?: "1.0.0"
+        } catch (_: Exception) {
+            "1.0.0"
+        }
     }
 }

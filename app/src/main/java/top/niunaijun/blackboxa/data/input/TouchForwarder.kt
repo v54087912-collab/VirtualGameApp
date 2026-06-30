@@ -8,6 +8,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import top.niunaijun.blackbox.BlackBoxCore
 import top.niunaijun.blackboxa.data.network.model.GameInfo
+import top.niunaijun.blackboxa.widget.VirtualButton
 
 class TouchForwarder(private val context: Context) {
 
@@ -63,13 +64,12 @@ class TouchForwarder(private val context: Context) {
                 keyCode,
                 0,
                 0,
-                KeyEvent.META_EMPTY,
+                0,
                 InputDevice.SOURCE_KEYBOARD,
                 0,
                 KeyEvent.FLAG_FROM_SYSTEM
             )
             BlackBoxCore.get().onBeforeMainLaunchApk(targetPackage, resolveUserId())
-            event.recycle()
             true
         } catch (e: Exception) {
             android.util.Log.e("TouchForwarder", "Key forward failed: ${e.message}")
