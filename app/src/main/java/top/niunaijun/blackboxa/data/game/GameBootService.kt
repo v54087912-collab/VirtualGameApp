@@ -69,7 +69,7 @@ class GameBootService(private val context: Context) {
         val verified = safeCall("IntegrityCheck") {
             gameInstaller.verifyIntegrity(downloadedFile, gameInfo.sha256)
         }
-        if (!verified) {
+        if (verified != true) {
             downloadManager.deleteDownload(gameInfo.gameId)
             val msg = "SHA-256 integrity check failed for ${gameInfo.title}"
             _bootState.postValue(BootState.Error(gameInfo.gameId, msg))
@@ -138,7 +138,7 @@ class GameBootService(private val context: Context) {
         }
 
         _bootState.postValue(BootState.Completed)
-        BootResult(true, gameInfo.gameId, "Game launched successfully")
+        return BootResult(true, gameInfo.gameId, "Game launched successfully")
     }
 
     private fun resolveUserId(): Int {

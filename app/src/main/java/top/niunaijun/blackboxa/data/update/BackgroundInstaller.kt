@@ -100,18 +100,19 @@ class PendingInstallReceiver : android.content.BroadcastReceiver() {
     companion object {
         private const val TAG = "PendingInstallReceiver"
 
-        fun getIntentSender(context: Context, sessionId: Int): android.app.PendingIntent {
+        fun getIntentSender(context: Context, sessionId: Int): android.content.IntentSender {
             val intent = Intent(context, PendingInstallReceiver::class.java).apply {
                 action = "top.niunaijun.blackbox.INSTALL_RESULT"
                 putExtra(PackageInstaller.EXTRA_SESSION_ID, sessionId)
             }
-            return android.app.PendingIntent.getBroadcast(
+            val pendingIntent = android.app.PendingIntent.getBroadcast(
                 context,
                 sessionId,
                 intent,
                 android.app.PendingIntent.FLAG_UPDATE_CURRENT or
                     android.app.PendingIntent.FLAG_IMMUTABLE
             )
+            return pendingIntent.intentSender
         }
     }
 
