@@ -194,33 +194,70 @@ class GameDownloadService : Service() {
     }
 
     private suspend fun extractAndInstall(gameId: String, title: String, apiLevel: Int) {
-        statusCallback?.invoke("Extracting game files…")
-        updateNotification(title, 100, "Extracting…")
         dbHelper.updateInstallStatus(gameId, DatabaseHelper.STATUS_EXTRACTING)
 
-        // Step 4a: Extract ZIP
-        val extractionResult = gameBootService.safeCall("Extraction") {
-            val gameInstaller = top.niunaijun.blackboxa.data.game.GameInstaller(this@GameDownloadService)
-            val zipFile = downloadManager.getDownloadedFile(gameId)
-                ?: throw IllegalStateException("Downloaded file not found for $gameId")
-            gameInstaller.extractGame(
-                zippedFile = zipFile,
-                gameId = gameId,
-                onProgress = { pct ->
-                    statusCallback?.invoke("Extracting… $pct%")
-                    updateNotification(title, 100, "Extracting… $pct%")
-                }
-            )
-        }
-
-        if (extractionResult == null || extractionResult.apkFile == null) {
+        val downloadedFile = downloadManager.getDownloadedFile(gameId)
+        if (downloadedFile == null) {
             dbHelper.markFailed(gameId)
-            statusCallback?.invoke("Extraction failed")
-            completionCallback?.invoke(false, "Extraction failed — no APK found")
+            statusCallback?.invoke("Downloaded file not found")
+            completionCallback?.invoke(false, "Downloaded file not found")
             delay(2000)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return
+        }
+
+        val extractionResult: ExtractionResult
+
+        if (downloadedFile.extension.equals("apk", ignoreCase = true)) {
+            // Direct APK download — no extraction needed
+            Log.i(TAG, "Direct APK file detected: ${downloadedFile.name}, skipping extraction")
+            statusCallback?.invoke("Preparing game…")
+            updateNotification(title, 100, "Preparing…")
+
+            extractionResult = ExtractionResult(
+                gameId = gameId,
+                apkFile = downloadedFile,
+                obbFiles = emptyList(),
+                extractedDir = downloadedFile.parentFile ?: downloadedFile,
+                totalEntries = 1,
+                detectedArch = "32bit",
+                needsTranslation = false
+            )
+        } else {
+            // ZIP file — extract to find APK inside
+            statusCallback?.invoke("Extracting game files…")
+            updateNotification(title, 100, "Extracting…")
+
+            extractionResult = gameBootService.safeCall("Extraction") {
+                val gameInstaller = top.niunaijun.blackboxa.data.game.GameInstaller(this@GameDownloadService)
+                gameInstaller.extractGame(
+                    zippedFile = downloadedFile,
+                    gameId = gameId,
+                    onProgress = { pct ->
+                        statusCallback?.invoke("Extracting… $pct%")
+                        updateNotification(title, 100, "Extracting… $pct%")
+                    }
+                )
+            } ?: run {
+                dbHelper.markFailed(gameId)
+                statusCallback?.invoke("Extraction failed")
+                completionCallback?.invoke(false, "Extraction failed")
+                delay(2000)
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return
+            }
+
+            if (extractionResult.apkFile == null) {
+                dbHelper.markFailed(gameId)
+                statusCallback?.invoke("Extraction failed")
+                completionCallback?.invoke(false, "Extraction failed — no APK found")
+                delay(2000)
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+                return
+            }
         }
 
         // Step 4b: Route OBB

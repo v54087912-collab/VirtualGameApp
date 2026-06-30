@@ -89,12 +89,17 @@ class DownloadManager(private val context: Context) {
         )
     }
 
+    private fun getDownloadFile(gameId: String, url: String): File {
+        val ext = if (url.lowercase().endsWith(".apk")) ".apk" else ".zip"
+        return File(downloadDir, "$gameId$ext")
+    }
+
     private fun tryDownload(
         gameId: String,
         url: String,
         onProgress: (DownloadProgress) -> Unit
     ): DownloadResult {
-        val outputFile = File(downloadDir, "${gameId}.zip")
+        val outputFile = getDownloadFile(gameId, url)
         val metaFile = File(metaDir, "${gameId}.meta")
         var downloadedBytes = 0L
         var totalBytes = -1L
@@ -218,7 +223,7 @@ class DownloadManager(private val context: Context) {
         url: String,
         onProgress: (DownloadProgress) -> Unit
     ): DownloadResult {
-        val outputFile = File(downloadDir, "${gameId}.zip")
+        val outputFile = getDownloadFile(gameId, url)
         val metaFile = File(metaDir, "${gameId}.meta")
 
         val connection = URL(url).openConnection() as HttpURLConnection
@@ -348,25 +353,29 @@ class DownloadManager(private val context: Context) {
     }
 
     fun isDownloaded(gameId: String): Boolean {
-        return File(downloadDir, "${gameId}.zip").exists()
+        return File(downloadDir, "$gameId.apk").exists() || File(downloadDir, "$gameId.zip").exists()
     }
 
     fun getDownloadedFile(gameId: String): File? {
-        val file = File(downloadDir, "${gameId}.zip")
-        return if (file.exists()) file else null
+        // Check .apk first (direct APK download), then .zip (ZIP containing APK)
+        val apkFile = File(downloadDir, "$gameId.apk")
+        if (apkFile.exists()) return apkFile
+        val zipFile = File(downloadDir, "$gameId.zip")
+        return if (zipFile.exists()) zipFile else null
     }
 
     fun deleteDownload(gameId: String) {
         try {
-            File(downloadDir, "${gameId}.zip").delete()
-            File(metaDir, "${gameId}.meta").delete()
+            File(downloadDir, "$gameId.apk").delete()
+            File(downloadDir, "$gameId.zip").delete()
+            File(metaDir, "$gameId.meta").delete()
         } catch (_: Exception) {
         }
     }
 
     fun getTotalDownloadSize(): Long {
         return downloadDir.listFiles()
-            ?.filter { it.extension == "zip" }
+            ?.filter { it.extension == "zip" || it.extension == "apk" }
             ?.sumOf { it.length() } ?: 0L
     }
 }
