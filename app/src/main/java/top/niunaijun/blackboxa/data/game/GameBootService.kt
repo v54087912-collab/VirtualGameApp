@@ -151,7 +151,7 @@ class GameBootService(private val context: Context) {
         }
     }
 
-    private fun <T> safeCall(stepName: String, block: () -> T): T? {
+    internal fun <T> safeCall(stepName: String, block: () -> T): T? {
         return try {
             block()
         } catch (e: Exception) {

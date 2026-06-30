@@ -11,7 +11,8 @@
       "sha256": "",
       "api_level": 10,
       "architecture_type": "32bit",
-      "control_type": "touch"
+      "control_type": "touch",
+      "icon_url": ""
     },
     {
       "game_id": "com.glu.bloodglorylegend",
@@ -20,7 +21,8 @@
       "sha256": "",
       "api_level": 11,
       "architecture_type": "32bit",
-      "control_type": "touch"
+      "control_type": "touch",
+      "icon_url": ""
     },
     {
       "game_id": "com.glu.gunbros",
@@ -29,7 +31,8 @@
       "sha256": "",
       "api_level": 10,
       "architecture_type": "32bit",
-      "control_type": "touch"
+      "control_type": "touch",
+      "icon_url": ""
     },
     {
       "game_id": "com.missionofcrisis",
@@ -38,7 +41,8 @@
       "sha256": "",
       "api_level": 8,
       "architecture_type": "32bit",
-      "control_type": "keypad"
+      "control_type": "keypad",
+      "icon_url": ""
     },
     {
       "game_id": "com.boltcreative.pocketgod",
@@ -47,7 +51,8 @@
       "sha256": "",
       "api_level": 10,
       "architecture_type": "32bit",
-      "control_type": "touch"
+      "control_type": "touch",
+      "icon_url": ""
     },
     {
       "game_id": "com.glu.samuraivszombies",
@@ -56,7 +61,8 @@
       "sha256": "",
       "api_level": 11,
       "architecture_type": "32bit",
-      "control_type": "touch"
+      "control_type": "touch",
+      "icon_url": ""
     },
     {
       "game_id": "com.gamevil.zenonia2",
@@ -65,7 +71,8 @@
       "sha256": "",
       "api_level": 10,
       "architecture_type": "32bit",
-      "control_type": "touch"
+      "control_type": "touch",
+      "icon_url": ""
     },
     {
       "game_id": "com.gamevil.zenonia3",
@@ -74,7 +81,8 @@
       "sha256": "",
       "api_level": 10,
       "architecture_type": "32bit",
-      "control_type": "touch"
+      "control_type": "touch",
+      "icon_url": ""
     },
     {
       "game_id": "com.aidemmedia.zombiehighway",
@@ -83,7 +91,8 @@
       "sha256": "",
       "api_level": 10,
       "architecture_type": "32bit",
-      "control_type": "touch"
+      "control_type": "touch",
+      "icon_url": ""
     }
   ]
 }

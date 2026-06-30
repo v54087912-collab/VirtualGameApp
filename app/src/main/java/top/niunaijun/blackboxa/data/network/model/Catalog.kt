@@ -30,7 +30,8 @@ data class GameInfo(
     val apiLevel: Int,
     val architectureType: String,
     val controlType: String,
-    val obbUrl: String = ""
+    val obbUrl: String = "",
+    val iconUrl: String = ""
 ) {
     companion object {
         fun fromJson(json: JSONObject): GameInfo {
@@ -42,7 +43,8 @@ data class GameInfo(
                 apiLevel = json.getInt("api_level"),
                 architectureType = json.getString("architecture_type"),
                 controlType = json.getString("control_type"),
-                obbUrl = json.optString("obb_url", "")
+                obbUrl = json.optString("obb_url", ""),
+                iconUrl = json.optString("icon_url", "")
             )
         }
     }
@@ -56,6 +58,7 @@ data class GameInfo(
         put("architecture_type", architectureType)
         put("control_type", controlType)
         put("obb_url", obbUrl)
+        put("icon_url", iconUrl)
     }
 }
 

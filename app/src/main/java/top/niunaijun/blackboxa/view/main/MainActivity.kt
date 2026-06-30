@@ -1,25 +1,38 @@
 package top.niunaijun.blackboxa.view.main
 
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 import android.net.Uri
 import android.net.VpnService
 import android.os.Bundle
+import android.os.IBinder
 import android.util.Log
+import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
+import android.view.View
+import android.widget.ImageView
+import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
-import com.afollestad.materialdialogs.MaterialDialog
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.niunaijun.blackbox.BlackBoxCore
 import top.niunaijun.blackboxa.R
-import top.niunaijun.blackboxa.data.game.GameBootService
-import top.niunaijun.blackboxa.data.game.TangoCoreInitializer
+import top.niunaijun.blackboxa.data.game.GameDownloadService
+import top.niunaijun.blackboxa.data.local.DatabaseHelper
 import top.niunaijun.blackboxa.data.network.CatalogRepository
+import top.niunaijun.blackboxa.data.network.DownloadManager
 import top.niunaijun.blackboxa.data.network.model.GameInfo
 import top.niunaijun.blackboxa.databinding.ActivityMainBinding
 import top.niunaijun.blackboxa.util.inflate
@@ -28,32 +41,45 @@ import top.niunaijun.blackboxa.view.fake.FakeManagerActivity
 import top.niunaijun.blackboxa.view.setting.SettingActivity
 
 /**
- * MainActivity — Config-driven game dashboard.
+ * MainActivity — Config-driven game dashboard with zero-manual-step workflow.
  *
- * Reads games from local catalog.json (cached from remote).
- * Displays a clean RecyclerView grid of game cards.
- * On card click: silent download → install → launch.
- * FAB and manual app add are completely removed.
+ * Complete user flow:
+ * 1. App launch → fetch catalog.json (network) → display games in 3-col grid
+ * 2. If offline → scan local SQLite DB → show only downloaded/installed games
+ * 3. Game card click → check DB: is game_id installed?
+ *    → YES: launch directly via BlackBoxCore (no download, no loading screen)
+ *    → NO: show real-time progress dialog → download → extract → OBB inject → install → auto-launch
  */
 class MainActivity : LoadingActivity() {
 
     private val viewBinding: ActivityMainBinding by inflate()
     private lateinit var gameCardAdapter: GameCardAdapter
     private lateinit var catalogRepository: CatalogRepository
-    private lateinit var gameBootService: GameBootService
-    private lateinit var tangoCore: TangoCoreInitializer
+    private lateinit var downloadManager: DownloadManager
+    private lateinit var dbHelper: DatabaseHelper
 
     private var gameList = mutableListOf<GameInfo>()
+    private var downloadService: GameDownloadService? = null
+    private var progressDialog: AlertDialog? = null
+
+    private val serviceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            val binder = service as GameDownloadService.LocalBinder
+            downloadService = binder.getService()
+            setupServiceCallbacks()
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            downloadService = null
+        }
+    }
 
     companion object {
         private const val TAG = "MainActivity"
-        private const val STORAGE_PERMISSION_REQUEST_CODE = 1001
-        private const val VPN_PERMISSION_REQUEST_CODE = 1002
         private const val GRID_COLUMNS = 3
 
         fun start(context: Context) {
-            val intent = Intent(context, MainActivity::class.java)
-            context.startActivity(intent)
+            context.startActivity(Intent(context, MainActivity::class.java))
         }
     }
 
@@ -71,7 +97,7 @@ class MainActivity : LoadingActivity() {
             initToolbar(viewBinding.toolbarLayout.toolbar, R.string.app_name)
             initServices()
             initDashboard()
-            initTangoCore()
+            bindDownloadService()
             checkStoragePermission()
             checkVpnPermission()
 
@@ -82,22 +108,19 @@ class MainActivity : LoadingActivity() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Critical error in onCreate: ${e.message}")
-            showErrorDialog("Failed to initialize app: ${e.message}")
         }
     }
 
-    /**
-     * Initialize backend services: CatalogRepository, GameBootService, TangoCore
-     */
+    // ──────────────────────────────────────────────────
+    //  Step 1: Initialize services + dashboard
+    // ──────────────────────────────────────────────────
+
     private fun initServices() {
         catalogRepository = CatalogRepository(this)
-        gameBootService = GameBootService(this)
-        tangoCore = TangoCoreInitializer(this)
+        downloadManager = DownloadManager(this)
+        dbHelper = DatabaseHelper.getInstance(this)
     }
 
-    /**
-     * Initialize the dashboard RecyclerView with grid layout
-     */
     private fun initDashboard() {
         gameCardAdapter = GameCardAdapter { game ->
             onGameCardClicked(game)
@@ -109,54 +132,55 @@ class MainActivity : LoadingActivity() {
             setHasFixedSize(true)
         }
 
-        // Load catalog from local cache or network
+        // Load catalog: network first, fallback to local DB
         loadCatalog()
     }
 
-    /**
-     * Initialize Tango Core binary translation layer at app startup
-     */
-    private fun initTangoCore() {
-        try {
-            // Pre-initialize for 32-bit games (most catalog games are 32-bit)
-            val result = tangoCore.initialize("32bit")
-            Log.i(TAG, "Tango Core init: mode=${result.translationMode}, libs=${result.libsLoaded}")
-        } catch (e: Exception) {
-            Log.e(TAG, "Tango Core init failed: ${e.message}")
-        }
+    private fun bindDownloadService() {
+        val intent = Intent(this, GameDownloadService::class.java)
+        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
     }
 
-    /**
-     * Load game catalog — first from local cache, then refresh from network
-     */
+    // ──────────────────────────────────────────────────
+    //  Step 1a: Load catalog (network → local DB fallback)
+    // ──────────────────────────────────────────────────
+
     private fun loadCatalog() {
         viewBinding.stateView.showLoading()
 
-        // First, load from local cache for instant display
-        val cachedGames = catalogRepository.getCachedGames()
-        if (cachedGames.isNotEmpty()) {
-            gameList = cachedGames.toMutableList()
-            gameCardAdapter.submitList(gameList)
-            updateGameCount()
-            viewBinding.stateView.showContent()
-            Log.d(TAG, "Loaded ${cachedGames.size} games from cache")
-        }
-
-        // Then refresh from network in background
+        // Load from local DB for instant display
         lifecycleScope.launch {
+            val localGames = withContext(Dispatchers.IO) {
+                dbHelper.getAllGames()
+            }
+            if (localGames.isNotEmpty()) {
+                gameList = localGames.map { it.toGameInfo() }.toMutableList()
+                gameCardAdapter.submitList(gameList.toList())
+                updateGameCount()
+                viewBinding.stateView.showContent()
+            }
+
+            // Then refresh from network
             try {
                 val result = withContext(Dispatchers.IO) {
                     catalogRepository.fetchCatalog()
                 }
                 result.onSuccess { catalog ->
                     gameList = catalog.gamesList.toMutableList()
-                    gameCardAdapter.submitList(gameList)
+
+                    // Sync to local DB
+                    withContext(Dispatchers.IO) {
+                        val entities = catalog.gamesList.map { it.toGameEntity() }
+                        dbHelper.upsertGames(entities)
+                    }
+
+                    gameCardAdapter.submitList(gameList.toList())
                     updateGameCount()
                     viewBinding.stateView.showContent()
                     Log.d(TAG, "Loaded ${gameList.size} games from catalog")
                 }
                 result.onFailure { error ->
-                    Log.w(TAG, "Catalog fetch failed: ${error.message}")
+                    Log.w(TAG, "Catalog fetch failed (offline?): ${error.message}")
                     if (gameList.isEmpty()) {
                         viewBinding.stateView.showEmpty()
                     }
@@ -174,67 +198,27 @@ class MainActivity : LoadingActivity() {
         viewBinding.tvGameCount.text = getString(R.string.game_count, gameList.size)
     }
 
-    /**
-     * Handle game card click — silent install + launch pipeline
-     */
+    // ──────────────────────────────────────────────────
+    //  Step 2: Game card click — check if installed
+    // ──────────────────────────────────────────────────
+
     private fun onGameCardClicked(game: GameInfo) {
-        val currentStatus = gameCardAdapter.getInstallStatus(game.gameId)
+        val isInstalled = dbHelper.isInstalled(game.gameId)
 
-        // If already installed, just launch
-        if (currentStatus == GameCardAdapter.InstallStatus.INSTALLED) {
+        if (isInstalled) {
+            // INSTALLED → launch directly, no loading screen
             launchGame(game)
-            return
-        }
-
-        // Start silent install pipeline
-        gameCardAdapter.setInstallStatus(game.gameId, GameCardAdapter.InstallStatus.DOWNLOADING)
-
-        val progressDialog = MaterialDialog(this).show {
-            title(text = game.title)
-            message(text = getString(R.string.downloading_game, game.title))
-            cancelable(false)
-            cornerRadius(12f)
-        }
-
-        lifecycleScope.launch {
-            try {
-                val result = withContext(Dispatchers.IO) {
-                    gameBootService.bootGame(game)
-                }
-
-                progressDialog.dismiss()
-
-                if (result.success) {
-                    gameCardAdapter.setInstallStatus(game.gameId, GameCardAdapter.InstallStatus.INSTALLED)
-                    // Auto-launch after successful install
-                    launchGame(game)
-                } else {
-                    gameCardAdapter.setInstallStatus(game.gameId, GameCardAdapter.InstallStatus.FAILED)
-                    MaterialDialog(this@MainActivity).show {
-                        title(text = getString(R.string.install_failed_title))
-                        message(text = result.message)
-                        positiveButton(text = getString(R.string.retry)) {
-                            onGameCardClicked(game)
-                        }
-                        negativeButton(text = getString(R.string.cancel))
-                    }
-                }
-            } catch (e: Exception) {
-                progressDialog.dismiss()
-                gameCardAdapter.setInstallStatus(game.gameId, GameCardAdapter.InstallStatus.FAILED)
-                Log.e(TAG, "Boot failed for ${game.gameId}: ${e.message}")
-                MaterialDialog(this@MainActivity).show {
-                    title(text = getString(R.string.install_failed_title))
-                    message(text = e.message ?: "Unknown error")
-                    positiveButton(text = getString(R.string.ok))
-                }
-            }
+        } else {
+            // NOT INSTALLED → show progress dialog and start pipeline
+            showProgressDialog(game)
+            startDownloadPipeline(game)
         }
     }
 
-    /**
-     * Launch an installed game in the sandbox
-     */
+    // ──────────────────────────────────────────────────
+    //  Step 2a: Launch already-installed game (instant)
+    // ──────────────────────────────────────────────────
+
     private fun launchGame(game: GameInfo) {
         showLoading()
         lifecycleScope.launch {
@@ -244,18 +228,187 @@ class MainActivity : LoadingActivity() {
                 }
                 hideLoading()
                 if (!result) {
+                    // If launch fails, maybe game was uninstalled — reset status
+                    dbHelper.updateInstallStatus(game.gameId, DatabaseHelper.STATUS_NOT_INSTALLED)
                     toast(getString(R.string.launch_failed, game.title))
+                    loadCatalog() // Refresh grid
                 }
             } catch (e: Exception) {
                 hideLoading()
                 Log.e(TAG, "Launch failed: ${e.message}")
+                dbHelper.updateInstallStatus(game.gameId, DatabaseHelper.STATUS_NOT_INSTALLED)
                 toast(getString(R.string.launch_failed, game.title))
+                loadCatalog()
             }
         }
     }
 
     // ──────────────────────────────────────────────────
-    //  Permission handling (storage + VPN)
+    //  Step 3: Show real-time progress dialog
+    // ──────────────────────────────────────────────────
+
+    private fun showProgressDialog(game: GameInfo) {
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.custom_loading_dialog, null)
+
+        val ivIcon = dialogView.findViewById<ImageView>(R.id.ivDialogGameIcon)
+        val tvTitle = dialogView.findViewById<TextView>(R.id.tvDialogTitle)
+        val tvStatus = dialogView.findViewById<TextView>(R.id.tvDialogStatus)
+        val progressBar = dialogView.findViewById<LinearProgressIndicator>(R.id.progressBar)
+        val tvPercent = dialogView.findViewById<TextView>(R.id.tvProgressPercent)
+        val tvSizeInfo = dialogView.findViewById<TextView>(R.id.tvSizeInfo)
+        val btnCancel = dialogView.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnCancel)
+
+        tvTitle.text = game.title
+        tvStatus.text = getString(R.string.downloading_assets)
+        progressBar.progress = 0
+        tvPercent.text = "0%"
+        tvSizeInfo.text = ""
+
+        // Set game icon placeholder
+        ivIcon.setImageBitmap(createGameIcon(game.title))
+
+        progressDialog = AlertDialog.Builder(this, R.style.Theme_BlackBox)
+            .setView(dialogView)
+            .setCancelable(false)
+            .create()
+
+        progressDialog?.show()
+
+        btnCancel.setOnClickListener {
+            GameDownloadService.cancel(this)
+            progressDialog?.dismiss()
+            progressDialog = null
+            dbHelper.updateInstallStatus(game.gameId, DatabaseHelper.STATUS_NOT_INSTALLED)
+            loadCatalog()
+        }
+    }
+
+    private fun setupServiceCallbacks() {
+        downloadService?.setProgressCallback { progress ->
+            runOnUiThread {
+                progressDialog?.let { dialog ->
+                    val tvStatus = dialog.findViewById<TextView>(R.id.tvDialogStatus)
+                    val progressBar = dialog.findViewById<LinearProgressIndicator>(R.id.progressBar)
+                    val tvPercent = dialog.findViewById<TextView>(R.id.tvProgressPercent)
+                    val tvSizeInfo = dialog.findViewById<TextView>(R.id.tvSizeInfo)
+
+                    tvStatus?.text = getString(R.string.downloading_assets)
+                    progressBar?.progress = progress.percentage
+                    tvPercent?.text = "${progress.percentage}%"
+
+                    if (progress.totalBytes > 0) {
+                        val downloadedMB = progress.bytesDownloaded / (1024.0 * 1024.0)
+                        val totalMB = progress.totalBytes / (1024.0 * 1024.0)
+                        tvSizeInfo?.text = String.format("%.1f MB / %.1f MB", downloadedMB, totalMB)
+                    }
+                }
+            }
+        }
+
+        downloadService?.setStatusCallback { status ->
+            runOnUiThread {
+                progressDialog?.let { dialog ->
+                    val tvStatus = dialog.findViewById<TextView>(R.id.tvDialogStatus)
+                    tvStatus?.text = status
+
+                    // Update progress bar for non-download stages
+                    val progressBar = dialog.findViewById<LinearProgressIndicator>(R.id.progressBar)
+                    val tvPercent = dialog.findViewById<TextView>(R.id.tvProgressPercent)
+                    when {
+                        status.contains("Extracting", ignoreCase = true) -> {
+                            progressBar?.isIndeterminate = true
+                            tvPercent?.text = ""
+                        }
+                        status.contains("Installing", ignoreCase = true) -> {
+                            progressBar?.isIndeterminate = true
+                            tvPercent?.text = ""
+                        }
+                        status.contains("Launching", ignoreCase = true) -> {
+                            progressBar?.isIndeterminate = true
+                            tvPercent?.text = ""
+                        }
+                    }
+                }
+            }
+        }
+
+        downloadService?.setCompletionCallback { success, message ->
+            runOnUiThread {
+                progressDialog?.dismiss()
+                progressDialog = null
+
+                if (success) {
+                    loadCatalog() // Refresh grid to show "Installed" status
+                } else {
+                    toast("Install failed: $message")
+                    loadCatalog()
+                }
+            }
+        }
+    }
+
+    // ──────────────────────────────────────────────────
+    //  Game icon placeholder generator
+    // ──────────────────────────────────────────────────
+
+    private fun createGameIcon(title: String): Bitmap {
+        val colors = intArrayOf(
+            0xFFE53935.toInt(), 0xFF1E88E5.toInt(), 0xFF43A047.toInt(),
+            0xFFFB8C00.toInt(), 0xFF8E24AA.toInt(), 0xFF00ACC1.toInt(),
+            0xFFD81B60.toInt(), 0xFF3949AB.toInt(), 0xFF00897B.toInt()
+        )
+        val colorIndex = title.hashCode().and(0x7FFFFFFF) % colors.size
+        val size = 128
+        val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint().apply { color = colors[colorIndex]; isAntiAlias = true }
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
+
+        paint.color = Color.WHITE
+        paint.textSize = 56f
+        paint.textAlign = Paint.Align.CENTER
+        paint.isFakeBoldText = true
+        val letter = title.first().uppercaseChar().toString()
+        val textY = size / 2f - (paint.descent() + paint.ascent()) / 2f
+        canvas.drawText(letter, size / 2f, textY, paint)
+        return bitmap
+    }
+
+    // ──────────────────────────────────────────────────
+    //  Extension: GameInfo ↔ DatabaseHelper.GameEntity
+    // ──────────────────────────────────────────────────
+
+    private fun GameInfo.toGameEntity(): DatabaseHelper.GameEntity {
+        val existingStatus = dbHelper.getGame(gameId)?.installStatus
+            ?: DatabaseHelper.STATUS_NOT_INSTALLED
+        return DatabaseHelper.GameEntity(
+            gameId = gameId,
+            title = title,
+            downloadUrl = downloadUrl,
+            sha256 = sha256,
+            apiLevel = apiLevel,
+            architectureType = architectureType,
+            controlType = controlType,
+            obbUrl = obbUrl,
+            installStatus = existingStatus
+        )
+    }
+
+    private fun DatabaseHelper.GameEntity.toGameInfo(): GameInfo {
+        return GameInfo(
+            gameId = gameId,
+            title = title,
+            downloadUrl = downloadUrl,
+            sha256 = sha256,
+            apiLevel = apiLevel,
+            architectureType = architectureType,
+            controlType = controlType,
+            obbUrl = obbUrl
+        )
+    }
+
+    // ──────────────────────────────────────────────────
+    //  Permission handling
     // ──────────────────────────────────────────────────
 
     private fun checkStoragePermission() {
@@ -275,7 +428,7 @@ class MainActivity : LoadingActivity() {
                             android.Manifest.permission.READ_EXTERNAL_STORAGE,
                             android.Manifest.permission.WRITE_EXTERNAL_STORAGE
                         ),
-                        STORAGE_PERMISSION_REQUEST_CODE
+                        1001
                     )
                 }
             }
@@ -285,7 +438,7 @@ class MainActivity : LoadingActivity() {
     }
 
     private fun showStoragePermissionDialog() {
-        MaterialDialog(this).show {
+        com.afollestad.materialdialogs.MaterialDialog(this).show {
             title(text = getString(R.string.storage_permission_title))
             message(text = getString(R.string.storage_permission_message))
             positiveButton(text = getString(R.string.grant_permission)) {
@@ -301,9 +454,7 @@ class MainActivity : LoadingActivity() {
     }
 
     private val storagePermissionResult =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-            // Permission result handled — app will work with whatever is granted
-        }
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
 
     private fun checkVpnPermission() {
         try {
@@ -317,22 +468,10 @@ class MainActivity : LoadingActivity() {
     }
 
     private val vpnPermissionResult =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK) {
-                Log.d(TAG, "VPN permission granted")
-            }
-        }
-
-    private fun showErrorDialog(message: String) {
-        MaterialDialog(this).show {
-            title(text = getString(R.string.error_title))
-            message(text = message)
-            positiveButton(text = getString(R.string.ok)) { finish() }
-        }
-    }
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { }
 
     // ──────────────────────────────────────────────────
-    //  Menu (Settings, Fake Location, Open Source, Telegram)
+    //  Menu
     // ──────────────────────────────────────────────────
 
     override fun onCreateOptionsMenu(menu: Menu?): Boolean {
@@ -345,9 +484,7 @@ class MainActivity : LoadingActivity() {
             R.id.main_git -> {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/ALEX5402/NewBlackbox")))
             }
-            R.id.main_setting -> {
-                SettingActivity.start(this)
-            }
+            R.id.main_setting -> SettingActivity.start(this)
             R.id.main_tg -> {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/newblackboxa")))
             }
@@ -362,22 +499,24 @@ class MainActivity : LoadingActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Refresh catalog when returning to dashboard
-        if (::gameCardAdapter.isInitialized && gameList.isNotEmpty()) {
+        if (::gameCardAdapter.isInitialized) {
             loadCatalog()
         }
     }
 
-    /**
-     * Stub methods kept for backward compatibility with AppsFragment.
-     * These are no longer used in the dashboard UI.
-     */
-    @Suppress("UNUSED_PARAMETER")
-    fun showFloatButton(show: Boolean) {
-        // FAB removed — no-op
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            unbindService(serviceConnection)
+        } catch (_: Exception) { }
+        progressDialog?.dismiss()
+        progressDialog = null
     }
 
-    fun scanUser() {
-        // User switching removed — no-op
-    }
+    /**
+     * Stub methods for backward compatibility with AppsFragment.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun showFloatButton(show: Boolean) { }
+    fun scanUser() { }
 }

@@ -86,4 +86,11 @@
     <string name="later">Later</string>
     <string name="storage_permission_title">Storage Permission Required</string>
     <string name="storage_permission_message">This app needs storage permission to download and run sandboxed games. Please grant permission in the next screen.</string>
+
+    <!-- Loading Dialog -->
+    <string name="downloading_assets">Downloading game assets…</string>
+    <string name="extracting_files">Extracting game files…</string>
+    <string name="injecting_obb">Injecting OBB files…</string>
+    <string name="installing_in_sandbox">Installing in sandbox…</string>
+    <string name="launching_game">Launching game…</string>
 </resources>
