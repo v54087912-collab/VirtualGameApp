@@ -39,7 +39,7 @@ object LegacyRenderCompat {
             configureHardwareAcceleration(activity, apiLevel)
             configureLayerType(activity, apiLevel)
             configureWindowFlags(activity)
-            configureDisplayRefresh(activity)
+            configureDisplayRefresh(activity, apiLevel)
             Log.i(TAG, "Legacy render compat applied successfully")
         } catch (e: Exception) {
             Log.w(TAG, "Partial render compat failure: ${e.message}", e)
@@ -90,13 +90,10 @@ object LegacyRenderCompat {
 
             if (apiLevel < 16) {
                 // Pre-Honeycomb games: force software rendering pipeline
-                // This ensures the game's GL context uses the correct
-                // software rasterizer instead of the modern HWUI pipeline
-                window.setFlags(
-                    WindowManager.LayoutParams.FLAG_SOFTWARE_UI_MODE,
-                    WindowManager.LayoutParams.FLAG_SOFTWARE_UI_MODE
-                )
-                Log.d(TAG, "Software rendering forced for API $apiLevel")
+                // Use LAYER_TYPE_SOFTWARE on DecorView to bypass HWUI
+                val decorView = activity.window.decorView
+                decorView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+                Log.d(TAG, "Software rendering forced via LAYER_TYPE_SOFTWARE for API $apiLevel")
             } else if (apiLevel < 21) {
                 // Jelly Bean to KitKat: use hardware-accelerated compat mode
                 // with legacy rendering hints
