@@ -44,21 +44,27 @@
 
     </LinearLayout>
 
-    <!-- State view for loading/empty/error states -->
-    <com.github.nukc.stateview.StateView
-        android:id="@+id/stateView"
+    <!-- Content area: FrameLayout so StateView overlays on top of RecyclerView -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1">
 
-    <!-- Game Grid -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/rvGameGrid"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:clipToPadding="false"
-        android:padding="8dp"
-        android:scrollbars="vertical" />
+        <!-- Game Grid -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvGameGrid"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:padding="8dp"
+            android:scrollbars="vertical" />
+
+        <!-- State view for loading/empty/error states (overlays on top) -->
+        <com.github.nukc.stateview.StateView
+            android:id="@+id/stateView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+    </FrameLayout>
 
 </LinearLayout>

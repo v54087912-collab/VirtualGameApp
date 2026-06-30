@@ -37,7 +37,7 @@ class CatalogRepository(private val context: Context) {
 
     private fun fetchFromNetwork(): String {
         val url = URL(
-            "https://raw.githubusercontent.com/ALEX5402/NewBlackbox/main/catalog.json"
+            "https://raw.githubusercontent.com/v54087912-collab/VirtualGameApp/main/catalog.json"
         )
         val connection = url.openConnection() as HttpURLConnection
         connection.apply {
