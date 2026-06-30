@@ -1,0 +1,63 @@
+name: Build and Release APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build APKs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: 'recursive'
+          fetch-depth: 0
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x ./gradlew
+
+      - name: Generate dev keystore
+        run: |
+          keytool -genkeypair -v \
+            -keystore app/dev_keystore.jks \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -alias key0 \
+            -storepass 'kJCp!Bda#PBdN2RLK%yMK@hatq&69E' \
+            -keypass 'kJCp!Bda#PBdN2RLK%yMK@hatq&69E' \
+            -dname "CN=Dev, OU=Dev, O=Dev, L=Unknown, ST=Unknown, C=US"
+
+      - name: Build Debug and Release APKs
+        run: ./gradlew assembleDebug assembleRelease --stacktrace
+
+      - name: Find and Organize APK files
+        run: |
+          mkdir -p build-artifacts
+          find app/build/outputs/apk/ -name "*.apk" -exec cp {} build-artifacts/ \;
+          echo "Generated APKs:"
+          ls -la build-artifacts/
+
+      - name: Create Release and Upload APKs
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: "Build #${{ github.run_number }}"
+          files: build-artifacts/*.apk
+          draft: false
+          prerelease: true
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

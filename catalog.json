@@ -1,0 +1,89 @@
+{
+  "app_metadata": {
+    "latest_app_version": "1.0.0",
+    "update_type": "flexible"
+  },
+  "games_list": [
+    {
+      "game_id": "com.glu.bloodglory",
+      "title": "Blood & Glory",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/blood-and-glory-1-1-6-en-android.apk",
+      "sha256": "",
+      "api_level": 10,
+      "architecture_type": "32bit",
+      "control_type": "touch"
+    },
+    {
+      "game_id": "com.glu.bloodglorylegend",
+      "title": "Blood & Glory: Legend",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/blood-and-glory-legend-2-0-2-en-android.apk",
+      "sha256": "",
+      "api_level": 11,
+      "architecture_type": "32bit",
+      "control_type": "touch"
+    },
+    {
+      "game_id": "com.glu.gunbros",
+      "title": "Gun Bros",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/gun-bros-multiplayer-3-5-0-es-en-fr-de-it-android.apk",
+      "sha256": "",
+      "api_level": 10,
+      "architecture_type": "32bit",
+      "control_type": "touch"
+    },
+    {
+      "game_id": "com.missionofcrisis",
+      "title": "Mission of Crisis",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/mission-of-crisis-1-5-1-0.apk",
+      "sha256": "",
+      "api_level": 8,
+      "architecture_type": "32bit",
+      "control_type": "keypad"
+    },
+    {
+      "game_id": "com.boltcreative.pocketgod",
+      "title": "Pocket God",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/Pocket_God_1.40.2.apk",
+      "sha256": "",
+      "api_level": 10,
+      "architecture_type": "32bit",
+      "control_type": "touch"
+    },
+    {
+      "game_id": "com.glu.samuraivszombies",
+      "title": "Samurai vs Zombies Defense",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/samurai-vs-zombies-defense.apk",
+      "sha256": "",
+      "api_level": 11,
+      "architecture_type": "32bit",
+      "control_type": "touch"
+    },
+    {
+      "game_id": "com.gamevil.zenonia2",
+      "title": "Zenonia 2",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/zenonia2-1-0-5.apk",
+      "sha256": "",
+      "api_level": 10,
+      "architecture_type": "32bit",
+      "control_type": "touch"
+    },
+    {
+      "game_id": "com.gamevil.zenonia3",
+      "title": "Zenonia 3",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/zenonia3-1-0-2.apk",
+      "sha256": "",
+      "api_level": 10,
+      "architecture_type": "32bit",
+      "control_type": "touch"
+    },
+    {
+      "game_id": "com.aidemmedia.zombiehighway",
+      "title": "Zombie Highway",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/Zombie_Highway_1.10.3.apk",
+      "sha256": "",
+      "api_level": 10,
+      "architecture_type": "32bit",
+      "control_type": "touch"
+    }
+  ]
+}
