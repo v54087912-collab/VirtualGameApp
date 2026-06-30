@@ -294,17 +294,18 @@ class GameDownloadService : Service() {
             return
         }
 
-        // Step 5: Mark installed
-        dbHelper.markInstalled(gameId, gameId)
+        // Step 5: Mark installed with real package name
+        val realPackageName = installResult.packageName ?: gameId
+        dbHelper.markInstalled(gameId, realPackageName)
         statusCallback?.invoke("Installation complete!")
         completionCallback?.invoke(true, "Game installed successfully")
         updateNotification(title, 100, "Installed!")
 
-        // Step 6: Auto-launch game
+        // Step 6: Auto-launch game using real package name
         delay(500)
         statusCallback?.invoke("Launching $title…")
         val launched = gameBootService.safeCall("LaunchGame") {
-            BlackBoxCore.get().launchApk(gameId, 0)
+            BlackBoxCore.get().launchApk(realPackageName, 0)
         }
 
         if (launched != true) {

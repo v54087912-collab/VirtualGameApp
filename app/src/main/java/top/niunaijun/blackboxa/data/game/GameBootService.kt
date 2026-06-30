@@ -127,9 +127,11 @@ class GameBootService(private val context: Context) {
             return BootResult(false, gameInfo.gameId, msg)
         }
 
+        val realPackageName = installResult.packageName ?: gameInfo.gameId
+
         _bootState.postValue(BootState.Launching(gameInfo.gameId))
         val launched = safeCall("LaunchGame") {
-            BlackBoxCore.get().launchApk(gameInfo.gameId, userId)
+            BlackBoxCore.get().launchApk(realPackageName, userId)
         }
         if (launched != true) {
             val msg = "Failed to launch ${gameInfo.title} inside sandbox"

@@ -225,14 +225,16 @@ class MainActivity : LoadingActivity() {
         lifecycleScope.launch {
             try {
                 val result = withContext(Dispatchers.IO) {
-                    BlackBoxCore.get().launchApk(game.gameId, 0)
+                    // Use real package name from DB (saved during install), fallback to gameId
+                    val entity = dbHelper.getGame(game.gameId)
+                    val packageName = entity?.packageName?.takeIf { it.isNotBlank() } ?: game.gameId
+                    BlackBoxCore.get().launchApk(packageName, 0)
                 }
                 hideLoading()
                 if (!result) {
-                    // If launch fails, maybe game was uninstalled — reset status
                     dbHelper.updateInstallStatus(game.gameId, DatabaseHelper.STATUS_NOT_INSTALLED)
                     toast(getString(R.string.launch_failed, game.title))
-                    loadCatalog() // Refresh grid
+                    loadCatalog()
                 }
             } catch (e: Exception) {
                 hideLoading()
