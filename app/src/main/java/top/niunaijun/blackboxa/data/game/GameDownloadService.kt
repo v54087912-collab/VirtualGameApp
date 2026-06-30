@@ -304,6 +304,18 @@ class GameDownloadService : Service() {
         // Step 6: Auto-launch game using real package name
         delay(500)
         statusCallback?.invoke("Launching $title…")
+
+        // Pre-inject graphics properties for legacy rendering compat
+        val launchGameInfo = GameInfo(
+            gameId = gameId,
+            title = title,
+            downloadUrl = "",
+            apiLevel = apiLevel,
+            architectureType = "32bit",
+            controlType = "touch"
+        )
+        GameRenderBridge.preInjectForGame(launchGameInfo)
+
         val launched = gameBootService.safeCall("LaunchGame") {
             BlackBoxCore.get().launchApk(realPackageName, 0)
         }
@@ -311,6 +323,9 @@ class GameDownloadService : Service() {
         if (launched != true) {
             Log.w(TAG, "Auto-launch failed for $gameId, but install was successful")
         }
+
+        // Cleanup graphics properties after launch
+        GameRenderBridge.postCleanup()
 
         delay(1000)
         stopForeground(STOP_FOREGROUND_REMOVE)

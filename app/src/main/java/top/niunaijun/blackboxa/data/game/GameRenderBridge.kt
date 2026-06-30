@@ -1,0 +1,170 @@
+package top.niunaijun.blackboxa.data.game
+
+import android.app.Activity
+import android.app.Application
+import android.content.Context
+import android.os.Bundle
+import android.util.Log
+import top.niunaijun.blackbox.BlackBoxCore
+import top.niunaijun.blackbox.app.configuration.AppLifecycleCallback
+import top.niunaijun.blackboxa.data.network.model.GameInfo
+
+/**
+ * GameRenderBridge — Registers AppLifecycleCallback with BlackBoxCore
+ * to intercept game Activity lifecycle and apply rendering fixes.
+ *
+ * This is the glue layer that connects:
+ *   GraphicsPropertyInjector (system props)
+ *   LegacyRenderCompat (Activity window config)
+ *
+ * into the BlackBox sandbox's lifecycle hooks.
+ *
+ * Flow:
+ *   1. beforeMainLaunchApk()   → Inject system properties
+ *   2. afterMainActivityOnCreate() → Configure Activity window
+ *   3. onActivityResumed()     → Apply post-render fixes
+ *   4. onActivityDestroyed()   → Cleanup
+ */
+object GameRenderBridge {
+
+    private const val TAG = "GameRenderBridge"
+
+    private var registered = false
+    private var currentGameInfo: GameInfo? = null
+
+    /**
+     * Register the lifecycle callback with BlackBoxCore.
+     * Call this once during app initialization (e.g., in Application.onCreate).
+     */
+    fun register() {
+        if (registered) {
+            Log.d(TAG, "Already registered")
+            return
+        }
+
+        try {
+            BlackBoxCore.get().addAppLifecycleCallback(renderCallback)
+            registered = true
+            Log.i(TAG, "GameRenderBridge registered with BlackBoxCore")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register GameRenderBridge: ${e.message}", e)
+        }
+    }
+
+    /**
+     * Unregister the lifecycle callback.
+     * Call this during app shutdown or when no longer needed.
+     */
+    fun unregister() {
+        if (!registered) return
+
+        try {
+            BlackBoxCore.get().removeAppLifecycleCallback(renderCallback)
+            registered = false
+            Log.i(TAG, "GameRenderBridge unregistered")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to unregister GameRenderBridge: ${e.message}")
+        }
+    }
+
+    /**
+     * Pre-inject graphics properties BEFORE game launch.
+     * Call this from GameDownloadService before BlackBoxCore.launchApk().
+     *
+     * @param gameInfo The game being launched (provides apiLevel and arch type)
+     */
+    fun preInjectForGame(gameInfo: GameInfo) {
+        currentGameInfo = gameInfo
+        Log.i(TAG, "Pre-injecting graphics for: ${gameInfo.gameId} (API ${gameInfo.apiLevel})")
+
+        // 1. Inject system properties for GPU/EGL compatibility
+        GraphicsPropertyInjector.injectGraphicsProperties(gameInfo.apiLevel)
+
+        // 2. If 32-bit game on 64-bit host, inject translation layer props
+        val is32Bit = gameInfo.architectureType.contains("32", ignoreCase = true)
+        if (is32Bit && BlackBoxCore.is64Bit()) {
+            GraphicsPropertyInjector.injectTranslationLayerProperties()
+        }
+
+        // 3. Initialize NativeCore with the game's target API level
+        try {
+            top.niunaijun.blackbox.core.NativeCore.init(gameInfo.apiLevel)
+            Log.d(TAG, "NativeCore initialized with API ${gameInfo.apiLevel}")
+        } catch (e: Exception) {
+            Log.w(TAG, "NativeCore init failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Cleanup after game exits. Reset properties to defaults.
+     */
+    fun postCleanup() {
+        currentGameInfo = null
+        GraphicsPropertyInjector.resetProperties()
+        Log.d(TAG, "Post-cleanup completed")
+    }
+
+    // ──────────────────────────────────────────────────
+    //  AppLifecycleCallback — hooks into BlackBox sandbox
+    // ──────────────────────────────────────────────────
+
+    private val renderCallback = object : AppLifecycleCallback() {
+
+        /**
+         * Called BEFORE the game's APK is launched.
+         * Second chance to inject properties if preInjectForGame() wasn't called.
+         */
+        override fun beforeMainLaunchApk(packageName: String, userid: Int) {
+            val game = currentGameInfo
+            if (game != null && game.gameId == packageName) {
+                Log.d(TAG, "beforeMainLaunchApk: $packageName — properties already injected")
+                // Properties were pre-injected, but re-inject to be safe
+                GraphicsPropertyInjector.injectGraphicsProperties(game.apiLevel)
+            }
+        }
+
+        /**
+         * Called AFTER the game's main Activity.onCreate().
+         * This is where we configure the window for legacy rendering.
+         */
+        override fun afterMainActivityOnCreate(activity: Activity) {
+            val game = currentGameInfo
+            val apiLevel = game?.apiLevel ?: 10
+
+            Log.i(TAG, "afterMainActivityOnCreate: ${activity.javaClass.simpleName}")
+
+            // Configure the Activity window for legacy rendering
+            LegacyRenderCompat.configureForLegacyGame(activity, apiLevel)
+
+            // Scan and configure any SurfaceViews in the view hierarchy
+            LegacyRenderCompat.configureSurfaceViews(activity, apiLevel)
+        }
+
+        /**
+         * Called when the game's Activity resumes.
+         * Apply post-render fixes (e.g., re-apply layer types after view tree is built).
+         */
+        override fun onActivityResumed(activity: Activity) {
+            val game = currentGameInfo
+            val apiLevel = game?.apiLevel ?: 10
+
+            // Re-scan SurfaceViews — game may have created them during onResume
+            LegacyRenderCompat.configureSurfaceViews(activity, apiLevel)
+
+            Log.d(TAG, "onActivityResumed: re-configured rendering for ${activity.javaClass.simpleName}")
+        }
+
+        /**
+         * Called when the game's Activity is destroyed.
+         * Cleanup rendering state.
+         */
+        override fun onActivityDestroyed(activity: Activity) {
+            Log.d(TAG, "onActivityDestroyed: ${activity.javaClass.simpleName}")
+
+            // Only full cleanup if this is the last activity
+            if (activity.isFinishing) {
+                postCleanup()
+            }
+        }
+    }
+}

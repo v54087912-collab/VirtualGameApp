@@ -129,6 +129,9 @@ class GameBootService(private val context: Context) {
 
         val realPackageName = installResult.packageName ?: gameInfo.gameId
 
+        // Pre-inject graphics properties for legacy rendering compat
+        GameRenderBridge.preInjectForGame(gameInfo)
+
         _bootState.postValue(BootState.Launching(gameInfo.gameId))
         val launched = safeCall("LaunchGame") {
             BlackBoxCore.get().launchApk(realPackageName, userId)

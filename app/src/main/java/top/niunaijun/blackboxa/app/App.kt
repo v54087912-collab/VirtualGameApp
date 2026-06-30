@@ -5,6 +5,7 @@ import android.app.Application
 import android.content.Context
 import android.util.Log
 import top.niunaijun.blackbox.BlackBoxCore
+import top.niunaijun.blackboxa.data.game.GameRenderBridge
 
 
 class App : Application() {
@@ -66,6 +67,13 @@ class App : Application() {
         try {
             super.onCreate()
             AppManager.doOnCreate(mContext)
+
+            // Register graphics render bridge for legacy game compatibility
+            try {
+                GameRenderBridge.register()
+            } catch (e: Exception) {
+                Log.e("App", "Error registering GameRenderBridge: ${e.message}")
+            }
         } catch (e: Exception) {
             Log.e("App", "Error in onCreate: ${e.message}")
         }
