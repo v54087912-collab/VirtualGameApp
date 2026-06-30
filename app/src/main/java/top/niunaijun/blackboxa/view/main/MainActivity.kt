@@ -36,6 +36,7 @@ import top.niunaijun.blackboxa.data.network.DownloadManager
 import top.niunaijun.blackboxa.data.network.model.GameInfo
 import top.niunaijun.blackboxa.databinding.ActivityMainBinding
 import top.niunaijun.blackboxa.util.inflate
+import top.niunaijun.blackboxa.util.toast
 import top.niunaijun.blackboxa.view.base.LoadingActivity
 import top.niunaijun.blackboxa.view.fake.FakeManagerActivity
 import top.niunaijun.blackboxa.view.setting.SettingActivity
@@ -211,7 +212,7 @@ class MainActivity : LoadingActivity() {
         } else {
             // NOT INSTALLED → show progress dialog and start pipeline
             showProgressDialog(game)
-            startDownloadPipeline(game)
+            GameDownloadService.start(this, game)
         }
     }
 

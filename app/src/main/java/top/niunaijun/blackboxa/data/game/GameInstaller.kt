@@ -105,6 +105,10 @@ class GameInstaller(private val context: Context) {
                     entry = zis.nextEntry
                 }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Extraction failed: ${e.message}", e)
+            throw e
+        }
         onProgress(100)
 
         val detectedArch = apkFile?.let { detectApkArchitecture(it) } ?: "no-apk"
