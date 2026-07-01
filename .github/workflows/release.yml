@@ -55,11 +55,11 @@ jobs:
       - name: Add signing config to build.gradle
         run: |
           python3 << 'PYEOF'
-          with open('app/build.gradle', 'r') as f:
-              content = f.read()
-          
-          if 'signingConfigs' not in content:
-              signing_block = """
+with open('app/build.gradle', 'r') as f:
+    content = f.read()
+
+if 'signingConfigs' not in content:
+    signing_block = """
               signingConfigs {
                   release {
                       storeFile file('dev-release.keystore')
@@ -69,27 +69,27 @@ jobs:
                   }
               }
               """
-              content = content.replace('    compileOptions {', signing_block + '    compileOptions {')
-              
-              old_release = """        release {
+    content = content.replace('    compileOptions {', signing_block + '    compileOptions {')
+    
+    old_release = """        release {
             minifyEnabled false
             debuggable false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }"""
-              
-              new_release = """        release {
+    
+    new_release = """        release {
             minifyEnabled false
             debuggable false
             signingConfig signingConfigs.release
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }"""
-              
-              content = content.replace(old_release, new_release)
-          
-          with open('app/build.gradle', 'w') as f:
-              f.write(content)
-          
-          print("Signing config added successfully")
+    
+    content = content.replace(old_release, new_release)
+
+with open('app/build.gradle', 'w') as f:
+    f.write(content)
+
+print("Signing config added successfully")
           PYEOF
           
           echo "=== build.gradle (first 70 lines) ==="
