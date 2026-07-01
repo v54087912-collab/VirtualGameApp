@@ -32,6 +32,13 @@ jobs:
             -storepass android -keypass android \
             -dname "CN=Android Debug,O=Android,C=US"
             
+      - name: Skip cargo build (no Rust toolchain needed)
+        run: |
+          sed -i '/^task cargoBuild/,/^}/d' app/build.gradle
+          sed -i '/^tasks.whenTaskAdded/,/^}/d' app/build.gradle
+          echo "Cargo build task removed"
+          grep -n "cargoBuild\|whenTaskAdded" app/build.gradle || echo "Verified: no cargo references remain"
+          
       - name: Build Debug APK
         run: ./gradlew assembleDebug --stacktrace
         
