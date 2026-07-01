@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <!-- TwoYi Container Surface -->
+    <SurfaceView
+        android:id="@+id/container_surface"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Input Overlay Layer -->
+    <io.twoyi.input.InputOverlayView
+        android:id="@+id/input_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clickable="true"
+        android:focusable="true" />
+
+    <!-- Overlay Controls -->
+    <LinearLayout
+        android:id="@+id/overlay_controls"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|end"
+        android:layout_margin="8dp"
+        android:orientation="vertical"
+        android:alpha="0.7">
+
+        <!-- Layout Toggle Button -->
+        <ImageButton
+            android:id="@+id/btn_toggle_layout"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/circle_button_bg"
+            android:contentDescription="@string/toggle_layout"
+            android:src="@drawable/ic_gamepad"
+            android:scaleType="centerInside"
+            android:tint="@android:color/white" />
+
+        <!-- Edit Mode Button -->
+        <ImageButton
+            android:id="@+id/btn_edit_mode"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginBottom="8dp"
+            android:background="@drawable/circle_button_bg"
+            android:contentDescription="@string/edit_layout"
+            android:src="@drawable/ic_edit"
+            android:scaleType="centerInside"
+            android:tint="@android:color/white" />
+
+        <!-- Hide Overlay Button -->
+        <ImageButton
+            android:id="@+id/btn_hide_overlay"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/circle_button_bg"
+            android:contentDescription="@string/hide_overlay"
+            android:src="@drawable/ic_visibility_off"
+            android:scaleType="centerInside"
+            android:tint="@android:color/white" />
+    </LinearLayout>
+
+    <!-- Edit Mode Indicator -->
+    <TextView
+        android:id="@+id/edit_mode_indicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/edit_mode_bg"
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="6dp"
+        android:text="@string/edit_mode_active"
+        android:textColor="@android:color/white"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
+</FrameLayout>

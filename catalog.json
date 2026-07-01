@@ -1,0 +1,100 @@
+{
+  "app_metadata": {
+    "latest_app_version": "1.0.0",
+    "update_type": "flexible",
+    "changelog": "Initial release with 10 classic games",
+    "min_sdk_version": 27
+  },
+  "games_list": [
+    {
+      "game_id": "blood-and-glory-1-1-6",
+      "title": "Blood & Glory",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/blood-and-glory-1-1-6-en-android.apk",
+      "api_level": "27",
+      "control_type": "touch",
+      "icon_url": "https://raw.githubusercontent.com/Saini920/Games-Releases-virtual-00282hehe/main/icons/blood_and_glory.png",
+      "size_mb": 14.2,
+      "description": "Epic gladiator combat game"
+    },
+    {
+      "game_id": "blood-and-glory-legend-2-0-2",
+      "title": "Blood & Glory: Legend",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/blood-and-glory-legend-2-0-2-en-android.apk",
+      "api_level": "27",
+      "control_type": "touch",
+      "icon_url": "https://raw.githubusercontent.com/Saini920/Games-Releases-virtual-00282hehe/main/icons/blood_and_glory_legend.png",
+      "size_mb": 20.5,
+      "description": "Sequel to the popular gladiator game"
+    },
+    {
+      "game_id": "gun-bros-multiplayer-3-5-0",
+      "title": "Gun Bros Multiplayer",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/gun-bros-multiplayer-3-5-0-es-en-fr-de-it-android.apk",
+      "api_level": "27",
+      "control_type": "touch",
+      "icon_url": "https://raw.githubusercontent.com/Saini920/Games-Releases-virtual-00282hehe/main/icons/gun_bros.png",
+      "size_mb": 3.1,
+      "description": "Co-op multiplayer shooter"
+    },
+    {
+      "game_id": "mission-of-crisis-1-5-1-0",
+      "title": "Mission of Crisis",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/mission-of-crisis-1-5-1-0.apk",
+      "api_level": "27",
+      "control_type": "touch",
+      "icon_url": "https://raw.githubusercontent.com/Saini920/Games-Releases-virtual-00282hehe/main/icons/mission_of_crisis.png",
+      "size_mb": 32.7,
+      "description": "Tactical strategy game"
+    },
+    {
+      "game_id": "pocket-god-1-40-2",
+      "title": "Pocket God",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/Pocket_God_1.40.2.apk",
+      "api_level": "27",
+      "control_type": "touch",
+      "icon_url": "https://raw.githubusercontent.com/Saini920/Games-Releases-virtual-00282hehe/main/icons/pocket_god.png",
+      "size_mb": 18.2,
+      "description": "God simulation game"
+    },
+    {
+      "game_id": "samurai-vs-zombies-defense",
+      "title": "Samurai vs Zombies Defense",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/samurai-vs-zombies-defense.apk",
+      "api_level": "27",
+      "control_type": "touch",
+      "icon_url": "https://raw.githubusercontent.com/Saini920/Games-Releases-virtual-00282hehe/main/icons/samurai_vs_zombies.png",
+      "size_mb": 19.2,
+      "description": "Tower defense with samurai warriors"
+    },
+    {
+      "game_id": "zenonia2-1-0-5",
+      "title": "Zenonia 2",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/zenonia2-1-0-5.apk",
+      "api_level": "27",
+      "control_type": "keypad",
+      "icon_url": "https://raw.githubusercontent.com/Saini920/Games-Releases-virtual-00282hehe/main/icons/zenonia2.png",
+      "size_mb": 10.9,
+      "description": "Action RPG adventure"
+    },
+    {
+      "game_id": "zenonia3-1-0-2",
+      "title": "Zenonia 3",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/zenonia3-1-0-2.apk",
+      "api_level": "27",
+      "control_type": "keypad",
+      "icon_url": "https://raw.githubusercontent.com/Saini920/Games-Releases-virtual-00282hehe/main/icons/zenonia3.png",
+      "size_mb": 10.6,
+      "description": "Epic RPG sequel"
+    },
+    {
+      "game_id": "zombie-highway-1-10-3",
+      "title": "Zombie Highway",
+      "download_url": "https://github.com/Saini920/Games-Releases-virtual-00282hehe/releases/download/v1.0.0/Zombie_Highway_1.10.3.apk",
+      "api_level": "27",
+      "control_type": "tilt",
+      "icon_url": "https://raw.githubusercontent.com/Saini920/Games-Releases-virtual-00282hehe/main/icons/zombie_highway.png",
+      "size_mb": 22.4,
+      "description": "Drive and survive zombie apocalypse"
+    }
+  ]
+}

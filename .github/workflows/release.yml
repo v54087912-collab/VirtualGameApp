@@ -1,0 +1,207 @@
+# ==============================================================================
+# TwoYi Android CI/CD - Build & Release Workflow
+# ==============================================================================
+# Project Analysis Summary:
+#   - Module: app (single module)
+#   - DSL: Groovy (build.gradle)
+#   - Gradle: 7.2
+#   - AGP: 7.1.1
+#   - Kotlin: 1.6.21
+#   - compileSdk: 31, minSdk: 27, targetSdk: 27
+#   - NDK ABI: arm64-v8a only
+#   - Rust: cargo xdk cross-compilation (build_rs.sh)
+#   - Signing: No config defined (dev keystore generated at runtime)
+#   - APK output: app/build/outputs/apk/
+# ==============================================================================
+
+name: Build & Release APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      # ─────────────────────────────────────────────────────────────────────
+      # Step 1: Checkout repository
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ─────────────────────────────────────────────────────────────────────
+      # Step 2: Set up JDK 17 (required for compileSdk 31 + AGP 7.1.1)
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'zulu'
+          cache: gradle
+
+      # ─────────────────────────────────────────────────────────────────────
+      # Step 3: Set up Rust toolchain (for cargo xdk cross-compilation)
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-xdk
+        run: |
+          cargo install cargo-xdk
+          cargo xdk --version
+
+      # ─────────────────────────────────────────────────────────────────────
+      # Step 4: Grant execute permission to gradlew
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Grant execute permission to gradlew
+        run: chmod +x gradlew
+
+      # ─────────────────────────────────────────────────────────────────────
+      # Step 5: Generate dev keystore for signing (if no real keystore)
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Generate dev keystore
+        run: |
+          KEYSTORE_PATH="${GITHUB_WORKSPACE}/app/dev-release.keystore"
+          if [ ! -f "$KEYSTORE_PATH" ]; then
+            keytool -genkeypair \
+              -v \
+              -keystore "$KEYSTORE_PATH" \
+              -alias devkey \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 36500 \
+              -storepass android \
+              -keypass android \
+              -dname "CN=TwoYi Dev, OU=Development, O=TwoYi, L=Unknown, ST=Unknown, C=US"
+            echo "Dev keystore generated successfully"
+          else
+            echo "Dev keystore already exists"
+          fi
+          ls -la "$KEYSTORE_PATH"
+
+      # ─────────────────────────────────────────────────────────────────────
+      # Step 6: Add signing config to build.gradle
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Configure signing in build.gradle
+        run: |
+          KEYSTORE_PATH="${GITHUB_WORKSPACE}/app/dev-release.keystore"
+
+          # Use Python to safely modify build.gradle
+          python3 << PYEOF
+          import re
+
+          with open('app/build.gradle', 'r') as f:
+              content = f.read()
+
+          # Add signingConfigs block before compileOptions
+          signing_block = """
+              signingConfigs {
+                  release {
+                      storeFile file('${KEYSTORE_PATH}')
+                      storePassword 'android'
+                      keyAlias 'devkey'
+                      keyPassword 'android'
+                  }
+              }
+          """
+
+          # Insert signingConfigs before compileOptions
+          content = content.replace(
+              '    compileOptions {',
+              signing_block + '\n    compileOptions {'
+          )
+
+          # Add signingConfig to release buildType
+          content = content.replace(
+              """        release {
+            minifyEnabled false
+            debuggable false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }""",
+              """        release {
+            minifyEnabled false
+            debuggable false
+            signingConfig signingConfigs.release
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }"""
+          )
+
+          with open('app/build.gradle', 'w') as f:
+              f.write(content)
+
+          print("Signing config added successfully")
+          PYEOF
+
+          echo "=== build.gradle after modification ==="
+          grep -A 15 "signingConfigs" app/build.gradle || true
+          echo ""
+
+      # ─────────────────────────────────────────────────────────────────────
+      # Step 7: Build release APK
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Build release APK
+        run: |
+          ./gradlew assembleRelease \
+            --stacktrace \
+            --no-daemon
+
+      # ─────────────────────────────────────────────────────────────────────
+      # Step 8: Build debug APK
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Build debug APK
+        run: |
+          ./gradlew assembleDebug \
+            --stacktrace \
+            --no-daemon
+
+      # ─────────────────────────────────────────────────────────────────────
+      # Step 9: Collect and organize all generated APKs
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Collect APKs
+        run: |
+          STAGING_DIR="${GITHUB_WORKSPACE}/release-assets"
+          mkdir -p "$STAGING_DIR"
+
+          echo "=== Searching for APKs ==="
+
+          # Find all APK files
+          find "${GITHUB_WORKSPACE}/app/build/outputs" -name "*.apk" -type f | while read apk; do
+            APK_NAME=$(basename "$apk")
+            echo "Found: $APK_NAME"
+            cp "$apk" "$STAGING_DIR/"
+          done
+
+          echo ""
+          echo "=== APKs staged for release ==="
+          ls -la "$STAGING_DIR/"
+
+          # Verify at least one APK exists
+          APK_COUNT=$(find "$STAGING_DIR" -name "*.apk" | wc -l)
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "ERROR: No APK files found!"
+            exit 1
+          fi
+          echo "Total APKs found: $APK_COUNT"
+
+      # ─────────────────────────────────────────────────────────────────────
+      # Step 10: Create GitHub Release and upload APKs
+      # ─────────────────────────────────────────────────────────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Build #${{ github.run_number }}
+          prerelease: true
+          generate_release_notes: false
+          files: |
+            release-assets/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
