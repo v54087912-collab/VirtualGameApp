@@ -1,122 +1,45 @@
-# ==============================================================================
-# TwoYi Android CI/CD - Build & Release Workflow
-# ==============================================================================
-
-name: Build & Release APK
+name: Build APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build-and-release:
+  build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
+      - uses: actions/checkout@v4
+      
+      - name: Setup JDK
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'zulu'
-          cache: gradle
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android
-
-      - name: Install cargo-xdk
-        run: |
-          cargo install cargo-xdk || echo "cargo-xdk install failed, continuing..."
-
-      - name: Grant execute permission
+          
+      - name: Make gradlew executable
         run: chmod +x gradlew
-
-      - name: Generate dev keystore
+        
+      - name: Generate keystore
         run: |
           keytool -genkeypair -v \
-            -keystore app/dev-release.keystore \
-            -alias devkey \
-            -keyalg RSA \
-            -keysize 2048 \
-            -validity 36500 \
-            -storepass android \
-            -keypass android \
-            -dname "CN=Dev, OU=Dev, O=Dev, L=Unknown, ST=Unknown, C=US"
-          echo "Keystore generated"
-
-      - name: Add signing config to build.gradle
-        run: |
-          python3 << 'PYEOF'
-with open('app/build.gradle', 'r') as f:
-    content = f.read()
-
-if 'signingConfigs' not in content:
-    signing_block = """
-              signingConfigs {
-                  release {
-                      storeFile file('dev-release.keystore')
-                      storePassword 'android'
-                      keyAlias 'devkey'
-                      keyPassword 'android'
-                  }
-              }
-              """
-    content = content.replace('    compileOptions {', signing_block + '    compileOptions {')
-    
-    old_release = """        release {
-            minifyEnabled false
-            debuggable false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-        }"""
-    
-    new_release = """        release {
-            minifyEnabled false
-            debuggable false
-            signingConfig signingConfigs.release
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-        }"""
-    
-    content = content.replace(old_release, new_release)
-
-with open('app/build.gradle', 'w') as f:
-    f.write(content)
-
-print("Signing config added successfully")
-          PYEOF
-          
-          echo "=== build.gradle (first 70 lines) ==="
-          head -70 app/build.gradle
-
-      - name: Build release APK
-        run: |
-          ./gradlew assembleRelease --stacktrace --no-daemon 2>&1 || echo "Release build completed with warnings"
-
-      - name: Build debug APK
-        run: |
-          ./gradlew assembleDebug --stacktrace --no-daemon 2>&1 || echo "Debug build completed with warnings"
-
-      - name: Collect APKs
-        run: |
-          mkdir -p release-assets
-          find app/build/outputs -name "*.apk" -type f -exec cp {} release-assets/ \; 2>/dev/null || true
-          echo "=== APKs found ==="
-          ls -la release-assets/ 2>/dev/null || echo "No APKs found in release-assets"
-
-      - name: Create GitHub Release
+            -keystore app/debug.keystore \
+            -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US"
+            
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug --stacktrace
+        
+      - name: Upload APK
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: build-${{ github.run_number }}
-          name: Build #${{ github.run_number }}
-          prerelease: true
-          generate_release_notes: false
-          files: release-assets/*.apk
+          tag_name: v${{ github.run_number }}
+          name: Release v${{ github.run_number }}
+          files: app/build/outputs/apk/debug/*.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
